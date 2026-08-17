@@ -836,12 +836,50 @@ async def _finalize_runner_state(
     await _set_runner_state_status(state, "completed")
 
 
+_ERROR_DATA_LIMIT_BYTES = 2048
+
+
+def _describe_acp_error(error: BaseException) -> str:
+    """Render *error*, appending the JSON-RPC code and data of a runner error.
+
+    ``str()`` of an ACP ``RequestError`` is only its generic message (for
+    example ``Internal error``); the runner's real reason travels in ``data``.
+    ``ACPService`` re-raises it as ``ACPSessionError(...) from exc``, so the
+    original error is either *error* itself or its ``__cause__``.
+    """
+    from acp import RequestError
+
+    request_error = next(
+        (
+            candidate
+            for candidate in (error, error.__cause__)
+            if isinstance(candidate, RequestError)
+        ),
+        None,
+    )
+    if request_error is None:
+        return str(error)
+
+    detail = f"{error} (code={request_error.code})"
+    if not request_error.data:
+        return detail
+    data_bytes = str(request_error.data).encode("utf-8")
+    data_text = data_bytes[:_ERROR_DATA_LIMIT_BYTES].decode("utf-8", "ignore")
+    if len(data_bytes) > _ERROR_DATA_LIMIT_BYTES:
+        data_text += "...[truncated]"
+    return f"{detail}: {data_text}"
+
+
 async def _set_failed_runner_state(
     state: Optional[_RunnerState],
     error: Exception,
 ) -> None:
     if state is not None:
-        await _set_runner_state_status(state, "failed", error=str(error))
+        await _set_runner_state_status(
+            state,
+            "failed",
+            error=_describe_acp_error(error),
+        )
 
 
 def _parse_timeout(
@@ -980,8 +1018,16 @@ async def _run_streaming_agent_action(
         await _set_failed_runner_state(state, e)
         yield response_text(f"Error: {e}")
     except Exception as e:
+        detail = _describe_acp_error(e)
+        logger.warning(
+            "ACP %s failed for runner %s: %s",
+            action_name,
+            runner_name,
+            detail,
+            exc_info=True,
+        )
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP execution error: {e}")
+        yield response_text(f"ACP execution error: {detail}")
 
 
 @tool_descriptor(
@@ -1095,7 +1141,15 @@ async def delegate_external_agent(
         except ValueError as e:
             return response_text(f"Error: {e}")
         except Exception as e:
-            return response_text(f"ACP execution error: {e}")
+            detail = _describe_acp_error(e)
+            logger.warning(
+                "ACP %s failed for runner %s: %s",
+                action_name,
+                runner_name,
+                detail,
+                exc_info=True,
+            )
+            return response_text(f"ACP execution error: {detail}")
 
     return _run_streaming_agent_action(
         action_name=action_name,

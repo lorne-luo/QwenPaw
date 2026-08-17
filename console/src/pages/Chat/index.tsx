@@ -4203,7 +4203,6 @@ export default function ChatPage() {
             ) : approvalPresets.length > 0 ? (
               <BackendApprovalToggle
                 backend={selectedAgentBackend}
-                sessionId={queueKey}
                 presets={approvalPresets}
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}

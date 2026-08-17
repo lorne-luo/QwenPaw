@@ -502,6 +502,7 @@ export default function AgentSelector({
         className={styles.agentSelector}
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
+        virtual={false}
         classNames={{ popup: { root: styles.agentSelectorDropdown } }}
         onOpenChange={setDropdownOpen}
         suffixIcon={

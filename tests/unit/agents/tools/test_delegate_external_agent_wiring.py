@@ -16,16 +16,19 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from acp import RequestError
 
 from qwenpaw.agents import acp as acp_pkg
 from qwenpaw.app import agent_context
 from qwenpaw.config import config as config_mod
+from qwenpaw.exceptions import ACPSessionError
 
 # Package ``tools.__init__`` re-exports the tool function under the same
 # name as the module, so resolve the real module object via importlib.
@@ -1336,6 +1339,50 @@ def _fake_stream(items: list[str], error: Optional[Exception] = None):
     return _generator
 
 
+def _wrapped_request_error(data: Any = None) -> ACPSessionError:
+    """Mirror ``ACPService``: a runner RequestError re-raised ``from`` it."""
+    wrapped = ACPSessionError("Internal error")
+    wrapped.__cause__ = RequestError(-32603, "Internal error", data)
+    return wrapped
+
+
+class TestDescribeAcpError:
+    def test_plain_error_is_unchanged(self):
+        assert dea._describe_acp_error(RuntimeError("kaput")) == "kaput"
+
+    def test_request_error_cause_appends_code_and_data(self):
+        error = _wrapped_request_error({"message": "model not supported"})
+        assert dea._describe_acp_error(error) == (
+            "Internal error (code=-32603): {'message': 'model not supported'}"
+        )
+
+    def test_direct_request_error_without_data_reports_code_only(self):
+        error = RequestError(-32603, "Internal error")
+        assert dea._describe_acp_error(error) == (
+            "Internal error (code=-32603)"
+        )
+
+    def test_data_at_the_limit_is_not_truncated(self):
+        error = _wrapped_request_error("x" * 2048)
+        assert dea._describe_acp_error(error) == (
+            "Internal error (code=-32603): " + "x" * 2048
+        )
+
+    def test_long_data_is_truncated_to_2kb(self):
+        error = _wrapped_request_error("x" * 5000)
+        assert dea._describe_acp_error(error) == (
+            "Internal error (code=-32603): " + "x" * 2048 + "...[truncated]"
+        )
+
+    def test_multibyte_data_is_truncated_by_bytes(self):
+        error = _wrapped_request_error("中" * 1000)
+        data_text = dea._describe_acp_error(error).split(": ", 1)[1]
+        assert data_text.endswith("...[truncated]")
+        body = data_text.removesuffix("...[truncated]")
+        assert body == "中" * 682
+        assert len(body.encode("utf-8")) <= 2048
+
+
 class TestRunStreamingAgentAction:
     async def test_success_records_state_and_streams_chunks(self, env):
         svc = _service()
@@ -1503,6 +1550,48 @@ class TestRunStreamingAgentAction:
 
         assert texts == ["ACP execution error: kaput"]
 
+    async def test_request_error_details_reach_text_state_and_log(
+        self,
+        env,
+        caplog,
+    ):
+        error = _wrapped_request_error({"message": "model not supported"})
+        with (
+            patch.object(
+                dea,
+                "_stream_action_responses",
+                _fake_stream([], error),
+            ),
+            caplog.at_level(logging.WARNING, logger=dea.__name__),
+        ):
+            texts = [
+                _chunk_text(c)
+                async for c in dea._run_streaming_agent_action(
+                    action_name="message",
+                    runner_name="codex",
+                    message_text="hi",
+                    execution_cwd=Path("/tmp/work"),
+                    timeout_seconds=None,
+                )
+            ]
+
+        detail = (
+            "Internal error (code=-32603): {'message': 'model not supported'}"
+        )
+        assert texts == [f"ACP execution error: {detail}"]
+        state = await dea._get_runner_state(
+            agent_id="agent-1",
+            chat_id="chat-1",
+            runner_name="codex",
+        )
+        assert state.status == "failed"
+        assert state.error == detail
+        records = [r for r in caplog.records if r.name == dea.__name__]
+        assert [r.getMessage() for r in records] == [
+            f"ACP message failed for runner codex: {detail}",
+        ]
+        assert records[0].exc_info is not None
+
     async def test_missing_session_context_reports_error(self, env):
         env.session_id = None
         texts = [
@@ -1602,6 +1691,30 @@ class TestDelegateExternalAgent:
         ):
             chunk = await dea.delegate_external_agent(action="list")
         assert _chunk_text(chunk) == "ACP execution error: kaboom"
+
+    async def test_request_error_during_immediate_action(self, env, caplog):
+        with (
+            patch.object(
+                dea,
+                "_handle_immediate_action",
+                AsyncMock(
+                    side_effect=RequestError(-32603, "Internal error", "boom"),
+                ),
+            ),
+            caplog.at_level(logging.WARNING, logger=dea.__name__),
+        ):
+            chunk = await dea.delegate_external_agent(
+                action="close",
+                runner="codex",
+            )
+        assert _chunk_text(chunk) == (
+            "ACP execution error: Internal error (code=-32603): boom"
+        )
+        records = [r for r in caplog.records if r.name == dea.__name__]
+        assert [r.getMessage() for r in records] == [
+            "ACP close failed for runner codex: "
+            "Internal error (code=-32603): boom",
+        ]
 
     async def test_streaming_actions_return_a_generator(self, env):
         result = await dea.delegate_external_agent(

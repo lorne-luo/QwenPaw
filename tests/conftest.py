@@ -8,6 +8,7 @@ This module provides shared fixtures for testing CoPaw components.
 All fixtures are designed to be isolated, safe, and easy to use.
 """
 
+import atexit
 import logging
 import os
 import shutil
@@ -20,7 +21,33 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qwenpaw.providers import provider_manager as _provider_manager_module
+# =============================================================================
+# Filesystem Isolation  (must happen before the first qwenpaw import)
+# =============================================================================
+# qwenpaw.constant derives WORKING_DIR / SECRET_DIR at import time, so an
+# autouse fixture cannot redirect them -- by the time fixtures run the
+# constants are frozen. With them left at the ~/.qwenpaw default, any test
+# that boots a runtime attaches the test process to the developer's live
+# instance: it reads and writes real session files, dials real MCP servers,
+# and starts the real cron scheduler, which then fires real scheduled jobs
+# mid-run. That also hangs teardown, because asyncio cannot cancel those
+# never-ending tasks.
+#
+# QWENPAW_WORKING_DIR wins over both the ~/.copaw legacy probe and the
+# COPAW_WORKING_DIR alias (see constant.py `_get_env`), and SECRET_DIR is
+# derived from it, so this single assignment isolates the whole tree.
+#
+# SECRET_DIR lands at "<WORKING_DIR>.secret" -- a sibling, not a child -- so
+# WORKING_DIR is nested one level inside the temp root and the root is what
+# gets removed. Deleting WORKING_DIR alone would strand a .secret directory
+# in /tmp on every run.
+_TEST_HOME = tempfile.mkdtemp(prefix="qwenpaw_test_home_")
+os.environ["QWENPAW_WORKING_DIR"] = os.path.join(_TEST_HOME, "qwenpaw")
+atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
+
+from qwenpaw.providers import (  # noqa: E402
+    provider_manager as _provider_manager_module,
+)
 
 # Fixture data is loaded explicitly by tests, never collected as a suite.
 collect_ignore = ["fixtures"]

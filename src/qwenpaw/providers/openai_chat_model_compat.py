@@ -24,6 +24,7 @@ from .adapters.usage import (
 )
 
 from ..local_models.tag_parser import (
+    DSMLLeakDetector,
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
@@ -33,6 +34,21 @@ from ..utils.tool_call_extra import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DSMLProtocolError(RuntimeError):
+    """Raised when an OpenAI-compatible provider leaks DeepSeek DSML."""
+
+
+def _should_guard_dsml_model(model: str) -> bool:
+    """Limit DSML rejection to DeepSeek V4/Flash model families."""
+    return bool(
+        re.search(
+            r"deepseek.*(?:v4|flash)|(?:v4|flash).*deepseek",
+            model,
+            re.IGNORECASE,
+        ),
+    )
 
 
 def _battr(block: Any, key: str, default: Any = None) -> Any:
@@ -941,6 +957,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         sanitized_response = _SanitizedStream(response)
         next_think_tool_call_id = 0
         next_text_tool_call_id = 0
+        guard_dsml = _should_guard_dsml_model(str(self.model))
+        # Separate tails prevent text and reasoning deltas forming a false tag.
+        dsml_text_detector = DSMLLeakDetector()
+        dsml_thinking_detector = DSMLLeakDetector()
 
         async for parsed in super()._parse_stream_response(
             start_datetime=start_datetime,
@@ -951,6 +971,27 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 sanitized_response.raw_usage,
                 sanitized_response.headers,
             )
+            if guard_dsml:
+                # Reject untrusted DSML before the legacy tool-tag recovery
+                # below.
+                for block in parsed.content:
+                    block_type = _battr(block, "type")
+                    if block_type == "text":
+                        leaked = dsml_text_detector.push(
+                            str(_battr(block, "text") or ""),
+                        )
+                    elif block_type == "thinking":
+                        leaked = dsml_thinking_detector.push(
+                            str(_battr(block, "thinking") or ""),
+                        )
+                    else:
+                        continue
+                    if leaked:
+                        raise DSMLProtocolError(
+                            "Upstream leaked DeepSeek DSML in assistant "
+                            "content",
+                        )
+
             # Filter out malformed tool_use blocks (null id or empty name)
             # emitted by some OpenAI-compatible models, to prevent bad entries
             # from being persisted into session history (issue #4185).

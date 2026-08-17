@@ -1228,3 +1228,11 @@ html.dark-mode .debug-log-path strong {
   max-height: 250px !important;
   overflow-y: auto !important;
 }
+
+/* BottomSheet scroll lock (see BottomSheet.tsx acquireSheetScrollLock).
+ * vaul runs with noBodyStyles, so freeze the app's own scrollers while any
+ * sheet is open instead of letting touch drags scroll the page behind it. */
+html[data-qwp-sheet-lock] .os-window-body,
+html[data-qwp-sheet-lock] .page-container {
+  overflow: hidden !important;
+}

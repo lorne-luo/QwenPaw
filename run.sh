@@ -4,13 +4,19 @@
 # The backend serves console/dist, so a backend-only restart leaves frontend
 # changes invisible. Always build first.
 #
+# Prints how long each stage took, plus a summary table at the end.
+#
 # Usage: ./run.sh [--no-build] [--no-restart]
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONSOLE_DIR="$REPO_DIR/console"
+BIN_DIR="$CONSOLE_DIR/node_modules/.bin"
 SERVICE="qwenpaw"
 HEALTH_URL="http://127.0.0.1:18888/api/healthz"
+# The port only opens once every agent's sessions are synced; ~70 s here.
+HEALTH_WAIT_S=120
 
 # vite exhausts the default ~2 GB heap on this codebase.
 export NODE_OPTIONS="--max-old-space-size=4096"
@@ -22,7 +28,7 @@ for arg in "$@"; do
     --no-build) do_build=0 ;;
     --no-restart) do_restart=0 ;;
     -h | --help)
-      sed -n '2,8p' "${BASH_SOURCE[0]}"
+      sed -n '2,9p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *)
@@ -34,27 +40,94 @@ done
 
 log() { printf '\n==> %s\n' "$1"; }
 
-if [ "$do_build" -eq 1 ]; then
-  log "Building console (heap ${NODE_OPTIONS##*=} MB)"
-  # npm run build pipes through tsc and vite; without pipefail an OOM in vite
-  # would be masked by a later stage exiting 0.
-  (cd "$REPO_DIR/console" && npm run build)
-  log "Built $(date -r "$REPO_DIR/console/dist/index.html" '+%F %T')"
-fi
+now_ms() { date +%s%3N; }
 
-if [ "$do_restart" -eq 1 ]; then
-  log "Restarting $SERVICE"
-  sudo systemctl restart "$SERVICE"
+# 1234 -> "1.23s"; 215000 -> "3m 35s"; 730 -> "730ms"
+fmt_dur() {
+  local ms=$1
+  if [ "$ms" -lt 1000 ]; then
+    printf '%dms' "$ms"
+  elif [ "$ms" -lt 60000 ]; then
+    printf '%d.%02ds' "$((ms / 1000))" "$(((ms % 1000) / 10))"
+  else
+    printf '%dm %02ds' "$((ms / 60000))" "$(((ms % 60000) / 1000))"
+  fi
+}
 
-  for _ in $(seq 1 30); do
+STAGE_NAMES=()
+STAGE_MS=()
+RUN_START=$(now_ms)
+
+# Runs a stage, records its duration, and echoes it immediately so a slow
+# stage is visible while the rest of the run is still going.
+stage() {
+  local name="$1"
+  shift
+  log "$name"
+  local t0 t1 ms rc=0
+  t0=$(now_ms)
+  # `|| rc=$?` keeps set -e from killing us here, so a stage that dies still
+  # gets its duration recorded before we propagate the failure.
+  "$@" || rc=$?
+  t1=$(now_ms)
+  ms=$((t1 - t0))
+  if [ "$rc" -ne 0 ]; then
+    name="$name (FAILED: exit $rc)"
+  fi
+  STAGE_NAMES+=("$name")
+  STAGE_MS+=("$ms")
+  printf '    [%s] %s\n' "$(fmt_dur "$ms")" "$name"
+  return "$rc"
+}
+
+# Printed via trap so a failed run still reports where the time went.
+summary() {
+  [ "${#STAGE_NAMES[@]}" -gt 0 ] || return 0
+  local i width=0
+  for i in "${!STAGE_NAMES[@]}"; do
+    [ "${#STAGE_NAMES[$i]}" -gt "$width" ] && width=${#STAGE_NAMES[$i]}
+  done
+  printf '\n==> Summary\n'
+  for i in "${!STAGE_NAMES[@]}"; do
+    printf '    %-*s  %10s\n' "$width" "${STAGE_NAMES[$i]}" "$(fmt_dur "${STAGE_MS[$i]}")"
+  done
+  printf '    %-*s  %10s\n' "$width" "$(printf '%.0s-' $(seq 1 "$width"))" '----------'
+  printf '    %-*s  %10s\n' "$width" "total" "$(fmt_dur "$(($(now_ms) - RUN_START))")"
+}
+trap summary EXIT
+
+# Mirrors console/package.json "build", split into separate stages so each one
+# is timed on its own. `precompress` and `verify:initial-bundle` are left out on
+# purpose: precompress only writes the .br/.gz copies that hub mode serves, and
+# the bundle guard measures its Brotli budget on those copies (without them it
+# compares the raw size against that budget and always fails).
+typecheck() { (cd "$CONSOLE_DIR" && "$BIN_DIR/tsc" -b); }
+bundle() { (cd "$CONSOLE_DIR" && "$BIN_DIR/vite" build); }
+verify_monaco() { (cd "$CONSOLE_DIR" && node scripts/verify-monaco-css.mjs); }
+
+restart_service() { sudo systemctl restart "$SERVICE"; }
+
+wait_healthy() {
+  for _ in $(seq 1 "$HEALTH_WAIT_S"); do
     if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-      log "$SERVICE is healthy"
-      exit 0
+      return 0
     fi
     sleep 1
   done
-
-  log "$SERVICE did not become healthy within 30s"
+  echo "$SERVICE did not become healthy within ${HEALTH_WAIT_S}s" >&2
   systemctl status "$SERVICE" --no-pager --lines=20 || true
-  exit 1
+  return 1
+}
+
+if [ "$do_build" -eq 1 ]; then
+  stage "tsc -b" typecheck
+  stage "vite build" bundle
+  stage "verify monaco css" verify_monaco
+  log "Built $(date -r "$CONSOLE_DIR/dist/index.html" '+%F %T')"
+fi
+
+if [ "$do_restart" -eq 1 ]; then
+  stage "systemctl restart $SERVICE" restart_service
+  stage "health check" wait_healthy
+  log "$SERVICE is healthy"
 fi

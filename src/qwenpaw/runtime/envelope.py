@@ -454,6 +454,9 @@ class Envelope:
                 ).model_dump(),
                 delta=False,
             )
+            # Without msg_id the frontend response builder cannot attach this
+            # content to its message and drops it with a console warning.
+            final_content.msg_id = state["message"].id
             state["message"].add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(state["message"])
@@ -596,6 +599,7 @@ class Envelope:
                 out_message.name = "assistant"
                 out_message.object = "message"
 
+            final_content.msg_id = out_message.id
             out_message.add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)

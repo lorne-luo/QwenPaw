@@ -5,11 +5,39 @@ from __future__ import annotations
 import pytest
 
 from qwenpaw.local_models.tag_parser import (
+    DSMLLeakDetector,
+    contains_dsml_protocol_leak,
     extract_thinking_from_text,
     parse_tool_calls_from_text,
     text_contains_think_tag,
     text_contains_tool_call_tag,
 )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<｜DSML｜tool_calls>",
+        "</｜DSML｜tool_calls>",
+        '<invoke name="web_search">',
+        "</invoke>",
+        '<｜DSML｜parameter name="query">',
+    ],
+)
+def test_contains_dsml_protocol_leak(text: str) -> None:
+    assert contains_dsml_protocol_leak(text) is True
+
+
+def test_dsml_detector_ignores_ordinary_invoke_prose() -> None:
+    assert (
+        contains_dsml_protocol_leak("The runtime may invoke a tool.") is False
+    )
+
+
+def test_dsml_detector_finds_split_marker() -> None:
+    detector = DSMLLeakDetector()
+    assert detector.push("answer</inv") is False
+    assert detector.push("oke>tail") is True
 
 # ---------------------------------------------------------------------------
 # text_contains_think_tag

@@ -4144,7 +4144,6 @@ export default function ChatPage() {
             ) : approvalPresets.length > 0 ? (
               <HarnessApprovalToggle
                 backend={selectedAgentBackend}
-                sessionId={queueKey}
                 presets={approvalPresets}
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}

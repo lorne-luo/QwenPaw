@@ -12,20 +12,18 @@ import styles from "./HarnessApprovalToggle.module.less";
 
 interface HarnessApprovalToggleProps {
   backend: string;
-  sessionId: string;
   presets: HarnessApprovalPreset[];
   onChange: (settings: Record<string, unknown>) => void;
   className?: string;
   compact?: boolean;
 }
 
-function storageKey(backend: string, sessionId: string): string {
-  return `harness-approval-${backend}-${sessionId}`;
+function storageKey(backend: string): string {
+  return `harness-approval-${backend}`;
 }
 
 export default function HarnessApprovalToggle({
   backend,
-  sessionId,
   presets,
   onChange,
   className,
@@ -40,11 +38,11 @@ export default function HarnessApprovalToggle({
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    const saved = localStorage.getItem(storageKey(backend, sessionId));
+    const saved = localStorage.getItem(storageKey(backend));
     const selected = presets.find((item) => item.id === saved) ?? presets[0];
     setSelectedId(selected?.id ?? "");
     onChangeRef.current(selected?.settings ?? {});
-  }, [backend, presets, sessionId]);
+  }, [backend, presets]);
 
   const selected =
     presets.find((item) => item.id === selectedId) ?? defaultPreset;
@@ -52,10 +50,10 @@ export default function HarnessApprovalToggle({
     (preset: HarnessApprovalPreset) => {
       setSelectedId(preset.id);
       setOpen(false);
-      localStorage.setItem(storageKey(backend, sessionId), preset.id);
+      localStorage.setItem(storageKey(backend), preset.id);
       onChangeRef.current(preset.settings);
     },
-    [backend, sessionId],
+    [backend],
   );
   const items: MenuProps["items"] = useMemo(
     () =>

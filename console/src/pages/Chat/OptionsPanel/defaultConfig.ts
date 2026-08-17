@@ -19,6 +19,7 @@ const defaultConfig = {
   },
   sender: {
     attachments: true,
+    showCharacterCount: false,
     // The host handles long pastes without replacing or truncating drafts.
     longTextUpload: false,
     disclaimer: "Works for you, grows with you",

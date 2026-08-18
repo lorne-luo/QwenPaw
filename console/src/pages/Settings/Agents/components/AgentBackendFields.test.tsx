@@ -38,6 +38,7 @@ const { mockCopyText, mockMessage, mockProvider } = vi.hoisted(() => ({
       provider_skills_discovery: true,
       provider_mcp_discovery: true,
       mcp_tool_allowlist: true,
+      passthrough_commands: false,
       loop_modes: false,
       attachments: false,
       context_usage: false,
@@ -213,6 +214,7 @@ describe("AgentBackendFields", () => {
         provider_skills_discovery: true,
         provider_mcp_discovery: true,
         mcp_tool_allowlist: true,
+        passthrough_commands: false,
         loop_modes: false,
         attachments: false,
         context_usage: false,
@@ -341,6 +343,85 @@ describe("AgentBackendFields", () => {
     expect(screen.queryByText(/Codex CLI/)).not.toBeInTheDocument();
     expect(
       screen.queryByText("agent.backend.qoderConnect"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no console sign-in for Claude Code", async () => {
+    vi.mocked(harnessApi.status).mockResolvedValue({
+      ...mockProvider,
+      id: "claude",
+      name: "Claude Code",
+      authenticated: false,
+      account: null,
+      runtime_path:
+        "/opt/qwenpaw/site-packages/claude_agent_sdk/_bundled/claude",
+    });
+    renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+    fireEvent.click(screen.getByText("Claude Code"));
+
+    expect(
+      await screen.findByText("agent.backend.claudeAuthHint"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("harnesses.connect")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("agent.backend.qoderConnect"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("edits Claude Code environment variables and probes with them", async () => {
+    vi.mocked(harnessApi.status).mockResolvedValue({
+      ...mockProvider,
+      id: "claude",
+      name: "Claude Code",
+    });
+    renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+
+    expect(
+      screen.queryByText("agent.backend.claudeEnvAdd"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Claude Code"));
+    fireEvent.click(await screen.findByText("agent.backend.claudeEnvAdd"));
+
+    fireEvent.change(
+      screen.getByPlaceholderText("agent.backend.claudeEnvKeyPlaceholder"),
+      { target: { value: "ANTHROPIC_BASE_URL" } },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("agent.backend.claudeEnvValuePlaceholder"),
+      { target: { value: "https://gateway.example.test/v1" } },
+    );
+    fireEvent.click(screen.getByText("agent.backend.detect"));
+
+    await waitFor(() =>
+      expect(harnessApi.status).toHaveBeenLastCalledWith("claude", {
+        env: [
+          {
+            name: "ANTHROPIC_BASE_URL",
+            value: "https://gateway.example.test/v1",
+          },
+        ],
+      }),
+    );
+  });
+
+  it("keeps the environment editor out of the other backends", async () => {
+    renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+
+    expect(
+      await screen.findByText("agent.backend.detectedBinary"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agent.backend.claudeEnvAdd"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Qoder"));
+
+    expect(
+      screen.queryByText("agent.backend.claudeEnvAdd"),
     ).not.toBeInTheDocument();
   });
 });

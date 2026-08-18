@@ -125,3 +125,45 @@ async def test_qoder_logout_returns_structured_conflict(
             "Qoder CLI does not expose a non-interactive logout command."
         ),
     }
+
+
+@pytest.mark.asyncio
+async def test_claude_login_returns_structured_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = (
+        "Claude Code sign-in is an interactive flow that must be completed "
+        "on the host."
+    )
+    adapter = AsyncMock()
+    adapter.start_login.side_effect = HarnessOperationNotSupportedError(
+        message,
+    )
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    workspace = SimpleNamespace(harness_runtime=runtime)
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await harnesses.post_harness_login(
+            "claude",
+            harnesses.HarnessLoginRequest(),
+            cast(Request, object()),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == {
+        "code": "login_not_supported",
+        "message": message,
+    }
+
+
+@pytest.mark.asyncio
+async def test_claude_is_a_supported_provider() -> None:
+    provider = harnesses._supported_provider("claude")
+
+    assert provider.id == "claude"
+    assert provider.coming_soon is False

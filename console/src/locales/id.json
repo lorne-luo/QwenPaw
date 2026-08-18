@@ -1153,6 +1153,21 @@
       "clear": {
         "description": "Bersihkan konteks percakapan"
       },
+      "init": {
+        "description": "Buat atau perbarui CLAUDE.md dengan dokumentasi basis kode"
+      },
+      "context": {
+        "description": "Tampilkan penggunaan konteks saat ini"
+      },
+      "usage": {
+        "description": "Tampilkan biaya sesi dan penggunaan paket"
+      },
+      "doctor": {
+        "description": "Periksa kesehatan instalasi Claude Code"
+      },
+      "mcp": {
+        "description": "Kelola server MCP untuk sesi ini"
+      },
       "compact": {
         "description": "Ringkas konteks percakapan; instruksi opsional didukung"
       },
@@ -1361,6 +1376,19 @@
       "reasoningDefault": "Gunakan default model",
       "codexNotFound": "Runtime Codex tidak ditemukan. Instal qwenpaw[codex] atau sediakan Codex CLI mandiri.",
       "qoderNotFound": "Runtime Qoder tidak ditemukan. Instal qwenpaw[qoder] atau sediakan qodercli.",
+      "claudeHint": "Autentikasi host atau variabel lingkungan · Ruang kerja agen",
+      "claudeAccount": "Akun Claude Code",
+      "claudeBinary": "Berkas eksekusi Claude Code",
+      "claudeBinaryHelp": "Biarkan kosong untuk memakai claude CLI bawaan Python SDK atau mendeteksi instalasi yang sudah ada. Jika tidak, masukkan jalur lengkap ke claude di macOS/Linux atau claude.exe di Windows. QwenPaw juga membaca CLAUDE_CODE_PATH dan PATH backend.",
+      "claudeBinaryPlaceholder": "Deteksi otomatis, atau tempel jalur berkas eksekusi claude",
+      "claudeDetectedBinary": "Claude Code terdeteksi",
+      "claudeNotFound": "Runtime Claude Code tidak ditemukan. Pasang qwenpaw[claude] atau sediakan claude CLI.",
+      "claudeAuthHint": "Masuk ke Claude Code harus diselesaikan di host: jalankan claude auth login di sana, atau tambahkan ANTHROPIC_AUTH_TOKEN atau ANTHROPIC_API_KEY di bawah.",
+      "claudeEnv": "Variabel lingkungan",
+      "claudeEnvHelp": "Diteruskan ke Claude Code saat dijalankan. Biarkan kosong untuk mewarisi autentikasi Claude Code milik host ini, termasuk ~/.claude/settings.json. Nilai disimpan sebagai teks biasa. Gunakan ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, dan ANTHROPIC_DEFAULT_OPUS_MODEL untuk mengarahkan agen ini melalui gateway.",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "Nilai",
+      "claudeEnvAdd": "Tambah variabel",
       "chatSettingsHint": "Pilih model, tingkat penalaran, dan izin eksekusi dari bilah alat Chat.",
       "capabilityTitle": "Kemampuan QwenPaw",
       "inheritedSkills": "Keahlian",

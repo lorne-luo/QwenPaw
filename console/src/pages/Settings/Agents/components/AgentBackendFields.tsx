@@ -5,16 +5,17 @@ import {
   Check,
   CircleAlert,
   CircleHelp,
-  Clock3,
   Copy,
   ExternalLink,
   LogOut,
   Network,
   PawPrint,
+  Plus,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   SquareTerminal,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -26,7 +27,7 @@ import styles from "./AgentBackendFields.module.less";
 
 const POLL_INTERVAL_MS = 2_000;
 
-type ProviderId = "codex" | "qoder";
+type ProviderId = "codex" | "qoder" | "claude";
 
 interface ProviderOption {
   id: ProviderId;
@@ -39,7 +40,8 @@ interface ProviderOption {
   detectedKey: string;
   notFoundKey: string;
   authHintKey: string;
-  connectKey: string;
+  connectKey?: string;
+  envEditor?: boolean;
 }
 
 const PROVIDERS: ProviderOption[] = [
@@ -68,6 +70,19 @@ const PROVIDERS: ProviderOption[] = [
     notFoundKey: "agent.backend.qoderNotFound",
     authHintKey: "agent.backend.qoderAuthHint",
     connectKey: "agent.backend.qoderConnect",
+  },
+  {
+    id: "claude",
+    name: "Claude Code",
+    hintKey: "agent.backend.claudeHint",
+    accountKey: "agent.backend.claudeAccount",
+    binaryKey: "agent.backend.claudeBinary",
+    binaryHelpKey: "agent.backend.claudeBinaryHelp",
+    binaryPlaceholderKey: "agent.backend.claudeBinaryPlaceholder",
+    detectedKey: "agent.backend.claudeDetectedBinary",
+    notFoundKey: "agent.backend.claudeNotFound",
+    authHintKey: "agent.backend.claudeAuthHint",
+    envEditor: true,
   },
 ];
 
@@ -102,7 +117,11 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
   const providerSettings = useCallback(() => {
     const value = form.getFieldValue(["backend_settings", "binary"]);
     const binary = typeof value === "string" ? value.trim() : "";
-    return binary ? { binary } : {};
+    const env = form.getFieldValue(["backend_settings", "env"]);
+    return {
+      ...(binary ? { binary } : {}),
+      ...(Array.isArray(env) && env.length > 0 ? { env } : {}),
+    };
   }, [form]);
 
   const loadStatus = useCallback(async () => {
@@ -122,6 +141,21 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
       setChecking(false);
     }
   }, [loadStatus]);
+
+  useEffect(() => {
+    if (!open || !selectedProvider.envEditor) return;
+    const env = form.getFieldValue(["backend_settings", "env"]);
+    if (Array.isArray(env) || !env || typeof env !== "object") return;
+    // A hand-edited config may store env as a plain object. Form.List only
+    // renders rows, so convert instead of silently dropping the values.
+    form.setFieldValue(
+      ["backend_settings", "env"],
+      Object.entries(env as Record<string, unknown>).map(([name, value]) => ({
+        name,
+        value: String(value ?? ""),
+      })),
+    );
+  }, [form, open, selectedProvider.envEditor]);
 
   useEffect(() => {
     if (!open || backend === "qwenpaw") {
@@ -308,16 +342,6 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 </button>
               );
             })}
-            <div className={styles.providerCardDisabled}>
-              <span className={styles.providerIcon}>
-                <Blocks size={18} />
-              </span>
-              <span className={styles.providerCopy}>
-                <strong>Claude Code</strong>
-                <small>{t("harnesses.comingSoon")}</small>
-              </span>
-              <Clock3 size={14} />
-            </div>
           </div>
 
           <div className={styles.providerConfig}>
@@ -399,6 +423,64 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 </span>
               </div>
             )}
+            {selectedProvider.envEditor && (
+              <div className={styles.envField}>
+                <span className={styles.binaryLabel}>
+                  {t("agent.backend.claudeEnv")}
+                  <Tooltip title={t("agent.backend.claudeEnvHelp")}>
+                    <span
+                      className={styles.helpIcon}
+                      aria-label={t("common.help")}
+                      role="img"
+                    >
+                      <CircleHelp size={14} />
+                    </span>
+                  </Tooltip>
+                </span>
+                <Form.List name={["backend_settings", "env"]}>
+                  {(fields, { add, remove }) => (
+                    <div className={styles.envList}>
+                      {fields.map(({ key, name, ...rest }) => (
+                        <div key={key} className={styles.envRow}>
+                          <Form.Item {...rest} name={[name, "name"]} noStyle>
+                            <Input
+                              placeholder={t(
+                                "agent.backend.claudeEnvKeyPlaceholder",
+                              )}
+                            />
+                          </Form.Item>
+                          <Form.Item {...rest} name={[name, "value"]} noStyle>
+                            <Input
+                              placeholder={t(
+                                "agent.backend.claudeEnvValuePlaceholder",
+                              )}
+                            />
+                          </Form.Item>
+                          <Button
+                            type="text"
+                            size="small"
+                            aria-label={t("common.delete")}
+                            icon={<Trash2 size={14} />}
+                            onClick={() => remove(name)}
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<Plus size={14} />}
+                        onClick={() => add({ name: "", value: "" })}
+                      >
+                        {t("agent.backend.claudeEnvAdd")}
+                      </Button>
+                    </div>
+                  )}
+                </Form.List>
+                <p className={styles.authHint}>
+                  {t("agent.backend.claudeEnvHelp")}
+                </p>
+              </div>
+            )}
             <div className={styles.accountRow}>
               <div className={styles.accountState}>
                 <span className={styles.accountLabel}>
@@ -426,7 +508,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 )}
               </div>
               <div className={styles.accountAction}>
-                {!provider?.authenticated && (
+                {!provider?.authenticated && selectedProvider.connectKey && (
                   <Button
                     icon={<ExternalLink size={14} />}
                     loading={connecting}

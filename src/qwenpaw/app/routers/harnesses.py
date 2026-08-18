@@ -172,7 +172,16 @@ async def post_harness_login(
         provider_id,
         body.settings,
     )
-    return await adapter.start_login(device_code=body.device_code)
+    try:
+        return await adapter.start_login(device_code=body.device_code)
+    except HarnessOperationNotSupportedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "login_not_supported",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.post("/{provider_id}/logout")

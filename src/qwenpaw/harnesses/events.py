@@ -107,6 +107,13 @@ class HarnessCapabilities(BaseModel):
     provider_skills_discovery: bool = False
     provider_mcp_discovery: bool = False
     mcp_tool_allowlist: bool = False
+    passthrough_commands: bool = False
+    """The backend parses slash commands itself.
+
+    The runtime must not reject an unlisted command for such a backend, so
+    ``commands`` becomes a discoverability hint for the console rather than a
+    whitelist.
+    """
     commands: list[HarnessCommand] = Field(default_factory=list)
     approval_presets: list[HarnessApprovalPreset] = Field(
         default_factory=list,

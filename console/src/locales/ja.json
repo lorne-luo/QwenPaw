@@ -382,6 +382,19 @@
       "reasoningDefault": "モデルのデフォルトを使用",
       "codexNotFound": "Codex runtime が見つかりません。qwenpaw[codex] をインストールするか、単独の Codex CLI を指定してください。",
       "qoderNotFound": "Qoder runtime が見つかりません。qwenpaw[qoder] をインストールするか、qodercli を指定してください。",
+      "claudeHint": "ホスト認証または環境変数 · エージェントワークスペース",
+      "claudeAccount": "Claude Code アカウント",
+      "claudeBinary": "Claude Code 実行ファイル",
+      "claudeBinaryHelp": "空欄の場合は Python SDK に同梱された claude CLI を使用するか、既存のインストールを自動検出します。それ以外は macOS/Linux では claude、Windows では claude.exe のフルパスを入力してください。QwenPaw は CLAUDE_CODE_PATH とバックエンドの PATH も参照します。",
+      "claudeBinaryPlaceholder": "自動検出、または claude 実行ファイルのパスを貼り付け",
+      "claudeDetectedBinary": "Claude Code を検出しました",
+      "claudeNotFound": "Claude Code ランタイムが見つかりません。qwenpaw[claude] をインストールするか、claude CLI を指定してください。",
+      "claudeAuthHint": "Claude Code のサインインはホスト上で完了する必要があります。ホストで claude auth login を実行するか、下の欄に ANTHROPIC_AUTH_TOKEN または ANTHROPIC_API_KEY を追加してください。",
+      "claudeEnv": "環境変数",
+      "claudeEnvHelp": "Claude Code の起動時に渡されます。空のままにすると、~/.claude/settings.json を含むこのホスト自身の Claude Code 認証を継承します。値は平文で保存されます。ANTHROPIC_BASE_URL、ANTHROPIC_AUTH_TOKEN、ANTHROPIC_DEFAULT_OPUS_MODEL を使うと、このエージェントをゲートウェイ経由にできます。",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "値",
+      "claudeEnvAdd": "変数を追加",
       "chatSettingsHint": "Chat ツールバーでモデル、推論レベル、実行権限を選択します。",
       "capabilityTitle": "QwenPaw の機能",
       "inheritedSkills": "スキル",
@@ -3280,6 +3293,21 @@
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
+      },
+      "init": {
+        "description": "CLAUDE.md を作成または更新してコードベースを文書化"
+      },
+      "context": {
+        "description": "現在のコンテキスト使用量を表示"
+      },
+      "usage": {
+        "description": "セッションの費用とプラン使用量を表示"
+      },
+      "doctor": {
+        "description": "Claude Code のインストール状態を診断"
+      },
+      "mcp": {
+        "description": "このセッションの MCP サーバーを管理"
       },
       "compact": {
         "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"

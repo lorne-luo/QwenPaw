@@ -723,6 +723,19 @@
       "reasoningDefault": "Usar o padrão do modelo",
       "codexNotFound": "O runtime do Codex não foi encontrado. Instale qwenpaw[codex] ou forneça um Codex CLI independente.",
       "qoderNotFound": "O runtime do Qoder não foi encontrado. Instale qwenpaw[qoder] ou forneça o qodercli.",
+      "claudeHint": "Autenticação do host ou variáveis de ambiente · Espaço de trabalho do agente",
+      "claudeAccount": "Conta do Claude Code",
+      "claudeBinary": "Executável do Claude Code",
+      "claudeBinaryHelp": "Deixe em branco para usar a CLI claude incluída no SDK Python ou detectar uma instalação existente. Caso contrário, informe o caminho completo para claude no macOS/Linux ou claude.exe no Windows. O QwenPaw também lê CLAUDE_CODE_PATH e o PATH do backend.",
+      "claudeBinaryPlaceholder": "Detecção automática, ou cole o caminho do executável claude",
+      "claudeDetectedBinary": "Claude Code detectado",
+      "claudeNotFound": "Runtime do Claude Code não encontrado. Instale qwenpaw[claude] ou informe a CLI claude.",
+      "claudeAuthHint": "O login do Claude Code precisa ser concluído no host: execute claude auth login lá, ou adicione ANTHROPIC_AUTH_TOKEN ou ANTHROPIC_API_KEY abaixo.",
+      "claudeEnv": "Variáveis de ambiente",
+      "claudeEnvHelp": "Enviadas ao Claude Code na inicialização. Deixe vazio para herdar a própria autenticação do Claude Code neste host, incluindo ~/.claude/settings.json. Os valores são armazenados em texto simples. Use ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN e ANTHROPIC_DEFAULT_OPUS_MODEL para rotear este agente por um gateway.",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "Valor",
+      "claudeEnvAdd": "Adicionar variável",
       "chatSettingsHint": "Escolha o modelo, o nível de raciocínio e as permissões de execução na barra de ferramentas do Chat.",
       "capabilityTitle": "Recursos do QwenPaw",
       "inheritedSkills": "Skills",
@@ -3539,6 +3552,21 @@
     "commands": {
       "clear": {
         "description": "Limpar the conversation context"
+      },
+      "init": {
+        "description": "Criar ou atualizar o CLAUDE.md com documentação do código"
+      },
+      "context": {
+        "description": "Mostrar o uso atual de contexto"
+      },
+      "usage": {
+        "description": "Mostrar o custo da sessão e o uso do plano"
+      },
+      "doctor": {
+        "description": "Verificar a saúde da instalação do Claude Code"
+      },
+      "mcp": {
+        "description": "Gerenciar servidores MCP desta sessão"
       },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"

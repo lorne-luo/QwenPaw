@@ -1169,6 +1169,21 @@
       "clear": {
         "description": "Xóa ngữ cảnh cuộc trò chuyện"
       },
+      "init": {
+        "description": "Tạo hoặc làm mới CLAUDE.md với tài liệu mã nguồn"
+      },
+      "context": {
+        "description": "Xem mức sử dụng ngữ cảnh hiện tại"
+      },
+      "usage": {
+        "description": "Xem chi phí phiên và mức dùng gói"
+      },
+      "doctor": {
+        "description": "Kiểm tra tình trạng cài đặt Claude Code"
+      },
+      "mcp": {
+        "description": "Quản lý máy chủ MCP cho phiên này"
+      },
       "compact": {
         "description": "Nén ngữ cảnh trò chuyện; hỗ trợ lệnh tùy chọn"
       },
@@ -1654,6 +1669,19 @@
       "reasoningDefault": "Dùng mặc định của mô hình",
       "codexNotFound": "Không tìm thấy runtime Codex. Hãy cài đặt qwenpaw[codex] hoặc cung cấp Codex CLI độc lập.",
       "qoderNotFound": "Không tìm thấy runtime Qoder. Hãy cài đặt qwenpaw[qoder] hoặc cung cấp qodercli.",
+      "claudeHint": "Xác thực trên máy chủ hoặc biến môi trường · Không gian làm việc của tác nhân",
+      "claudeAccount": "Tài khoản Claude Code",
+      "claudeBinary": "Tệp thực thi Claude Code",
+      "claudeBinaryHelp": "Để trống để dùng claude CLI đi kèm Python SDK hoặc tự phát hiện bản cài đặt sẵn có. Nếu không, hãy nhập đường dẫn đầy đủ tới claude trên macOS/Linux hoặc claude.exe trên Windows. QwenPaw cũng đọc CLAUDE_CODE_PATH và PATH của backend.",
+      "claudeBinaryPlaceholder": "Tự phát hiện, hoặc dán đường dẫn tệp thực thi claude",
+      "claudeDetectedBinary": "Đã phát hiện Claude Code",
+      "claudeNotFound": "Không tìm thấy môi trường chạy Claude Code. Hãy cài qwenpaw[claude] hoặc cung cấp claude CLI.",
+      "claudeAuthHint": "Việc đăng nhập Claude Code phải hoàn tất trên máy chủ: chạy claude auth login ở đó, hoặc thêm ANTHROPIC_AUTH_TOKEN hay ANTHROPIC_API_KEY bên dưới.",
+      "claudeEnv": "Biến môi trường",
+      "claudeEnvHelp": "Được truyền cho Claude Code khi khởi động. Để trống để kế thừa xác thực Claude Code của chính máy chủ này, bao gồm ~/.claude/settings.json. Giá trị được lưu ở dạng văn bản thuần. Dùng ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN và ANTHROPIC_DEFAULT_OPUS_MODEL để định tuyến tác nhân này qua một gateway.",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "Giá trị",
+      "claudeEnvAdd": "Thêm biến",
       "chatSettingsHint": "Chọn mô hình, mức suy luận và quyền thực thi trên thanh công cụ Chat.",
       "capabilityTitle": "Khả năng QwenPaw",
       "inheritedSkills": "Kỹ năng",

@@ -382,6 +382,19 @@
       "reasoningDefault": "Использовать значение модели по умолчанию",
       "codexNotFound": "Среда выполнения Codex не найдена. Установите qwenpaw[codex] или укажите отдельный Codex CLI.",
       "qoderNotFound": "Среда выполнения Qoder не найдена. Установите qwenpaw[qoder] или укажите qodercli.",
+      "claudeHint": "Аутентификация хоста или переменные окружения · Рабочая область агента",
+      "claudeAccount": "Аккаунт Claude Code",
+      "claudeBinary": "Исполняемый файл Claude Code",
+      "claudeBinaryHelp": "Оставьте пустым, чтобы использовать claude CLI из состава Python SDK или обнаружить существующую установку. Иначе укажите полный путь к claude в macOS/Linux или claude.exe в Windows. QwenPaw также читает CLAUDE_CODE_PATH и PATH бэкенда.",
+      "claudeBinaryPlaceholder": "Автоопределение или путь к исполняемому файлу claude",
+      "claudeDetectedBinary": "Claude Code обнаружен",
+      "claudeNotFound": "Среда выполнения Claude Code не найдена. Установите qwenpaw[claude] или укажите claude CLI.",
+      "claudeAuthHint": "Вход в Claude Code выполняется на хосте: запустите там claude auth login или добавьте ниже ANTHROPIC_AUTH_TOKEN либо ANTHROPIC_API_KEY.",
+      "claudeEnv": "Переменные окружения",
+      "claudeEnvHelp": "Передаются в Claude Code при запуске. Оставьте список пустым, чтобы унаследовать собственную аутентификацию Claude Code на этом хосте, включая ~/.claude/settings.json. Значения хранятся в открытом виде. Используйте ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN и ANTHROPIC_DEFAULT_OPUS_MODEL, чтобы направить этого агента через шлюз.",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "Значение",
+      "claudeEnvAdd": "Добавить переменную",
       "chatSettingsHint": "Выберите модель, уровень рассуждения и разрешения на выполнение на панели Chat.",
       "capabilityTitle": "Возможности QwenPaw",
       "inheritedSkills": "Навыки",
@@ -3295,6 +3308,21 @@
     "commands": {
       "clear": {
         "description": "Очистить контекст диалога"
+      },
+      "init": {
+        "description": "Создать или обновить CLAUDE.md с документацией кодовой базы"
+      },
+      "context": {
+        "description": "Показать текущее использование контекста"
+      },
+      "usage": {
+        "description": "Показать стоимость сессии и использование плана"
+      },
+      "doctor": {
+        "description": "Проверить состояние установки Claude Code"
+      },
+      "mcp": {
+        "description": "Управлять MCP-серверами этой сессии"
       },
       "compact": {
         "description": "Сжать контекст диалога и создать резюме; поддерживается доп. инструкция"

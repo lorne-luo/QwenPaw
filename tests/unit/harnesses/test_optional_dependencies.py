@@ -13,7 +13,7 @@ from qwenpaw.harnesses.base import MissingDependencyAdapter
 from qwenpaw.harnesses.registry import create_adapter
 
 
-def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
+def test_provider_sdks_are_optional_and_in_full() -> None:
     pyproject_path = Path(__file__).parents[3] / "pyproject.toml"
     data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     project = data["project"]
@@ -22,11 +22,13 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
 
     assert not any("openai-codex" in item for item in dependencies)
     assert not any("qoder-agent-sdk" in item for item in dependencies)
+    assert not any("claude-agent-sdk" in item for item in dependencies)
     assert extras["codex"] == ["openai-codex==0.144.4"]
     assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
+    assert extras["claude"] == ["claude-agent-sdk==0.2.139"]
     assert extras["full"] == [
         "qwenpaw[channels]",
-        "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
+        "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder,claude]",
     ]
 
 
@@ -49,3 +51,24 @@ async def test_missing_qoder_sdk_does_not_break_provider_creation(
     assert status.available is False
     assert status.installed is False
     assert status.error == "Install qwenpaw[qoder] to enable Qoder."
+
+
+@pytest.mark.asyncio
+async def test_missing_claude_sdk_does_not_break_provider_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delitem(
+        sys.modules,
+        "qwenpaw.harnesses.claude.adapter",
+        raising=False,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", None)
+
+    adapter = create_adapter("claude", tmp_path)
+    status = await adapter.status()
+
+    assert isinstance(adapter, MissingDependencyAdapter)
+    assert status.available is False
+    assert status.installed is False
+    assert status.error == "Install qwenpaw[claude] to enable Claude Code."

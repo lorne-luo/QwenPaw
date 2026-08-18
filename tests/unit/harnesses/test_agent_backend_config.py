@@ -49,3 +49,42 @@ def test_qoder_declares_console_attachment_support() -> None:
     capabilities = get_provider("qoder").capabilities
 
     assert capabilities.attachments is True
+
+
+def test_claude_backend_accepts_environment_overrides() -> None:
+    config = AgentProfileConfig(
+        id="claude-1",
+        name="Claude Code",
+        backend="claude",
+        backend_settings={
+            "model": "opus",
+            "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.test/v1"},
+        },
+    )
+
+    assert config.backend == "claude"
+    assert config.coding_mode.enabled is False
+    assert config.backend_settings["model"] == "opus"
+    assert config.backend_settings["env"] == {
+        "ANTHROPIC_BASE_URL": "https://gateway.example.test/v1",
+    }
+
+
+def test_claude_declares_console_attachment_support() -> None:
+    capabilities = get_provider("claude").capabilities
+
+    assert capabilities.attachments is True
+    assert capabilities.model_selection is True
+    assert capabilities.reasoning_effort is True
+
+
+def test_claude_approval_presets_match_the_cli_permission_modes() -> None:
+    presets = get_provider("claude").capabilities.approval_presets
+
+    assert [preset.settings["permission_mode"] for preset in presets] == [
+        "default",
+        "acceptEdits",
+        "plan",
+        "auto",
+        "bypassPermissions",
+    ]

@@ -1025,6 +1025,19 @@
       "reasoningDefault": "使用模型默认强度",
       "codexNotFound": "未检测到 Codex runtime。请安装 qwenpaw[codex]，或提供独立 Codex CLI。",
       "qoderNotFound": "未检测到 Qoder runtime。请安装 qwenpaw[qoder]，或提供 qodercli。",
+      "claudeHint": "本机认证或环境变量 · 智能体工作区",
+      "claudeAccount": "Claude Code 账号",
+      "claudeBinary": "Claude Code 可执行文件",
+      "claudeBinaryHelp": "留空则使用 Python SDK 内置的 claude CLI,或自动检测已安装的版本。也可填写 claude 的完整路径(Windows 为 claude.exe)。QwenPaw 同时读取 CLAUDE_CODE_PATH 和后端 PATH。",
+      "claudeBinaryPlaceholder": "自动检测,或粘贴 claude 可执行文件路径",
+      "claudeDetectedBinary": "已检测到 Claude Code",
+      "claudeNotFound": "未找到 Claude Code 运行时。请安装 qwenpaw[claude] 或提供 claude CLI。",
+      "claudeAuthHint": "Claude Code 登录需要在宿主机上完成:在宿主机运行 claude auth login,或在下方填写 ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY。",
+      "claudeEnv": "环境变量",
+      "claudeEnvHelp": "启动 Claude Code 时传入。留空则继承本机自身的 Claude Code 认证(含 ~/.claude/settings.json)。变量值以明文保存。使用 ANTHROPIC_BASE_URL、ANTHROPIC_AUTH_TOKEN 和 ANTHROPIC_DEFAULT_OPUS_MODEL 可将该智能体路由到网关。",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "变量值",
+      "claudeEnvAdd": "添加变量",
       "chatSettingsHint": "模型、推理强度与执行权限统一在 Chat 工具栏中选择。",
       "capabilityTitle": "QwenPaw 能力",
       "inheritedSkills": "技能",
@@ -4184,6 +4197,21 @@
     "commands": {
       "clear": {
         "description": "清空对话上下文"
+      },
+      "init": {
+        "description": "生成或刷新 CLAUDE.md 代码库文档"
+      },
+      "context": {
+        "description": "查看当前上下文用量"
+      },
+      "usage": {
+        "description": "查看会话费用与套餐用量"
+      },
+      "doctor": {
+        "description": "检查 Claude Code 安装状态"
+      },
+      "mcp": {
+        "description": "管理本次会话的 MCP 服务"
       },
       "compact": {
         "description": "压缩对话上下文并生成摘要，支持附带说明"

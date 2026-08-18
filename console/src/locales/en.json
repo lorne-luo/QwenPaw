@@ -1258,6 +1258,19 @@
       "reasoningDefault": "Use the model default",
       "codexNotFound": "Codex runtime not found. Install qwenpaw[codex] or provide a standalone Codex CLI.",
       "qoderNotFound": "Qoder runtime not found. Install qwenpaw[qoder] or provide qodercli.",
+      "claudeHint": "Host authentication or environment · Agent workspace",
+      "claudeAccount": "Claude Code account",
+      "claudeBinary": "Claude Code executable",
+      "claudeBinaryHelp": "Leave blank to use the claude CLI bundled with the Python SDK or detect an existing installation. Otherwise enter the full path to claude on macOS/Linux or claude.exe on Windows. QwenPaw also reads CLAUDE_CODE_PATH and the backend PATH.",
+      "claudeBinaryPlaceholder": "Auto-detect, or paste the claude executable path",
+      "claudeDetectedBinary": "Claude Code detected",
+      "claudeNotFound": "Claude Code runtime not found. Install qwenpaw[claude] or provide the claude CLI.",
+      "claudeAuthHint": "Claude Code sign-in must be completed on the host: run claude auth login there, or add ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY below.",
+      "claudeEnv": "Environment variables",
+      "claudeEnvHelp": "Passed to Claude Code when it starts. Leave the list empty to inherit this host's own Claude Code authentication, including ~/.claude/settings.json. Values are stored in plain text. Use ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, and ANTHROPIC_DEFAULT_OPUS_MODEL to route this agent through a gateway.",
+      "claudeEnvKeyPlaceholder": "ANTHROPIC_BASE_URL",
+      "claudeEnvValuePlaceholder": "Value",
+      "claudeEnvAdd": "Add variable",
       "chatSettingsHint": "Choose the model, reasoning effort, and execution permissions from the Chat toolbar.",
       "capabilityTitle": "QwenPaw capabilities",
       "inheritedSkills": "Skills",
@@ -4329,6 +4342,21 @@
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
+      },
+      "init": {
+        "description": "Create or refresh CLAUDE.md with codebase documentation"
+      },
+      "context": {
+        "description": "Show current context usage"
+      },
+      "usage": {
+        "description": "Show session cost and plan usage"
+      },
+      "doctor": {
+        "description": "Health-check the Claude Code installation"
+      },
+      "mcp": {
+        "description": "Manage MCP servers for this session"
       },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"

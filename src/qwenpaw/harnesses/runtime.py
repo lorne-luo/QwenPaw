@@ -39,6 +39,18 @@ from .streaming import TextStream, ToolStream
 logger = logging.getLogger(__name__)
 
 
+def _parses_own_commands(backend: str) -> bool:
+    """Return whether the backend handles slash commands in the prompt.
+
+    Such a backend gets the raw prompt through ``run_turn`` so its own parser
+    can answer, which keeps long commands streaming instead of batching.
+    """
+    try:
+        return get_provider(backend).capabilities.passthrough_commands
+    except ValueError:
+        return False
+
+
 class HarnessRuntime:
     """Own adapters for one workspace and expose QwenPaw envelopes."""
 
@@ -169,7 +181,7 @@ class HarnessRuntime:
                     HarnessEvent(kind=HarnessEventKind.COMPLETED),
                 ]
                 event_stream = self._iter_events(events)
-            elif command:
+            elif command and not _parses_own_commands(backend):
                 provider = get_provider(backend)
                 supported = {
                     item.name for item in provider.capabilities.commands

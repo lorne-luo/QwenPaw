@@ -396,3 +396,92 @@ async def test_runtime_handles_host_clear_for_every_backend(
 
     assert adapter.reset_session_id == "chat-1"
     assert output[-1].output[-1].metadata["clear_history"] is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_an_undeclared_command_for_a_gated_backend(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(role=Role.USER, content=[TextContent(text="/init")]),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.command == ""
+    assert adapter.prompt == ""
+    assert "Unsupported Codex command: /init" in str(output[-1].error)
+
+
+@pytest.mark.asyncio
+async def test_runtime_passes_slash_commands_through_to_the_backend(
+    tmp_path: Path,
+) -> None:
+    # Claude Code parses slash commands itself, so an undeclared one must
+    # reach run_turn verbatim instead of being rejected.
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["claude"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="/init extra words")],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="claude",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.command == ""
+    assert adapter.prompt == "/init extra words"
+    assert output[-1].status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_runtime_keeps_owning_clear_for_a_passthrough_backend(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["claude"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(role=Role.USER, content=[TextContent(text="/clear")]),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="claude",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.reset_session_id == "chat-1"
+    assert adapter.prompt == ""
+    assert output[-1].output[-1].metadata["clear_history"] is True

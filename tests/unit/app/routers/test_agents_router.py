@@ -28,6 +28,7 @@ from qwenpaw.agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
 from qwenpaw.app.agent_startup import AgentStartupStatus
+from qwenpaw.app.routers import agents as agents_module
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
     CreateAgentRequest,
@@ -43,6 +44,8 @@ from qwenpaw.app.routers.agents import (
     BackendSettingsRequest,
 )
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.harnesses.events import HarnessCapabilities
+from qwenpaw.harnesses.registry import ProviderCatalogItem
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -564,21 +567,39 @@ def test_get_agent_returns_404_for_app_base_exception(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("backend", "expected_status"),
-    [("missing", 400), ("claude", 409)],
-)
-def test_create_agent_rejects_unavailable_backend(
-    client,
-    backend,
-    expected_status,
-):
+def test_create_agent_rejects_an_unknown_backend(client):
     response = client.post(
         "/api/agents",
-        json={"name": "Invalid Agent", "backend": backend},
+        json={"name": "Invalid Agent", "backend": "missing"},
     )
 
-    assert response.status_code == expected_status
+    assert response.status_code == 400
+
+
+def test_create_agent_rejects_a_backend_that_is_not_ready(
+    client,
+    monkeypatch,
+):
+    # Every catalogued backend is shipped today, so the coming-soon branch
+    # needs a stand-in provider to stay covered.
+    monkeypatch.setattr(
+        agents_module,
+        "get_provider",
+        lambda backend: ProviderCatalogItem(
+            backend,
+            "Planned Backend",
+            True,
+            HarnessCapabilities(),
+        ),
+    )
+
+    response = client.post(
+        "/api/agents",
+        json={"name": "Invalid Agent", "backend": "planned"},
+    )
+
+    assert response.status_code == 409
+    assert "Planned Backend" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

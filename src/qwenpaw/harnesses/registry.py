@@ -113,8 +113,99 @@ PROVIDER_CATALOG = (
     ProviderCatalogItem(
         "claude",
         "Claude Code",
-        True,
-        HarnessCapabilities(),
+        False,
+        HarnessCapabilities(
+            authentication=True,
+            model_selection=True,
+            reasoning_effort=True,
+            reasoning_stream=True,
+            tool_stream=True,
+            session_resume=True,
+            attachments=True,
+            qwenpaw_skills_projection=True,
+            qwenpaw_mcp_projection=True,
+            provider_skills_discovery=False,
+            provider_mcp_discovery=False,
+            mcp_tool_allowlist=True,
+            passthrough_commands=True,
+            # Claude Code parses slash commands itself and reports 175 of
+            # them, including every Skill on the host. These are the built-ins
+            # worth surfacing in the console; anything else the operator types
+            # still reaches the CLI. `model` and `config` are omitted because
+            # they change CLI-side state that QwenPaw's own agent settings
+            # would then disagree with, and `clear` is owned by the runtime.
+            commands=[
+                HarnessCommand(
+                    name="init",
+                    description=(
+                        "Create or refresh CLAUDE.md with codebase "
+                        "documentation"
+                    ),
+                ),
+                HarnessCommand(
+                    name="compact",
+                    description="Compact the current Claude Code session",
+                    accepts_arguments=True,
+                ),
+                HarnessCommand(
+                    name="context",
+                    description="Show current context usage",
+                ),
+                HarnessCommand(
+                    name="usage",
+                    description="Show session cost and plan usage",
+                ),
+                HarnessCommand(
+                    name="doctor",
+                    description="Health-check the Claude Code installation",
+                ),
+                HarnessCommand(
+                    name="mcp",
+                    description="Manage MCP servers for this session",
+                    accepts_arguments=True,
+                ),
+            ],
+            approval_presets=[
+                HarnessApprovalPreset(
+                    id="ask",
+                    name="Ask before actions",
+                    description=(
+                        "Ask before file changes and command execution."
+                    ),
+                    settings={"permission_mode": "default"},
+                ),
+                HarnessApprovalPreset(
+                    id="accept-edits",
+                    name="Accept edits",
+                    description=(
+                        "Allow file edits while keeping other safeguards."
+                    ),
+                    settings={"permission_mode": "acceptEdits"},
+                ),
+                HarnessApprovalPreset(
+                    id="plan",
+                    name="Plan only",
+                    description="Analyze and plan without changing files.",
+                    settings={"permission_mode": "plan"},
+                ),
+                HarnessApprovalPreset(
+                    id="auto",
+                    name="Automatic",
+                    description=(
+                        "Let Claude Code decide which safe actions can run."
+                    ),
+                    settings={"permission_mode": "auto"},
+                ),
+                HarnessApprovalPreset(
+                    id="full-access",
+                    name="Full access",
+                    description=(
+                        "Skip permission checks in a trusted workspace."
+                    ),
+                    settings={"permission_mode": "bypassPermissions"},
+                ),
+            ],
+        ),
     ),
     ProviderCatalogItem(
         "qoder",
@@ -200,6 +291,13 @@ def adapter_config_key(
     values = settings or {}
     if provider_id in {"codex", "qoder"}:
         return (str(values.get("binary") or "").strip(),)
+    if provider_id == "claude":
+        from .claude.environment import agent_env, fingerprint
+
+        return (
+            str(values.get("binary") or "").strip(),
+            fingerprint(agent_env(values)),
+        )
     return ()
 
 
@@ -221,6 +319,21 @@ def create_adapter(
                 raise
             return MissingDependencyAdapter("qoder", "Qoder")
         return QoderAdapter(state_dir=state_dir, binary=binary)
+    if provider_id == "claude":
+        from .claude.environment import agent_env
+
+        binary = str((settings or {}).get("binary") or "").strip() or None
+        try:
+            from .claude.adapter import ClaudeAdapter
+        except ModuleNotFoundError as exc:
+            if exc.name != "claude_agent_sdk":
+                raise
+            return MissingDependencyAdapter("claude", "Claude Code")
+        return ClaudeAdapter(
+            state_dir=state_dir,
+            binary=binary,
+            env=agent_env(settings),
+        )
     raise ValueError(f"Unsupported third-party agent backend: {provider_id}")
 
 

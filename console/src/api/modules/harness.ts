@@ -52,6 +52,8 @@ export interface HarnessCapabilities {
   provider_skills_discovery: boolean;
   provider_mcp_discovery: boolean;
   mcp_tool_allowlist: boolean;
+  /** Backend parses slash commands itself, so `commands` is only a hint. */
+  passthrough_commands: boolean;
   commands: HarnessCommand[];
   approval_presets: HarnessApprovalPreset[];
 }

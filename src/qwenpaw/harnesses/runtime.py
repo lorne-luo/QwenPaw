@@ -101,6 +101,10 @@ class HarnessRuntime:
             result.append(provider)
         return result
 
+    def live_adapter(self, provider_id: str) -> HarnessAdapter | None:
+        """Return the running adapter, without creating or replacing it."""
+        return self._adapters.get(provider_id)
+
     async def adapter(
         self,
         provider_id: str,

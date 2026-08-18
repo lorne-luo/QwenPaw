@@ -5792,6 +5792,15 @@
     "runToolBatchRunning": "正在运行预存工作流",
     "runToolBatchProgress": "共 {{count}} 步",
     "runToolBatchStepCount": "总步骤数：{{count}}",
+    "userInput": {
+      "title": "Codex 需要你的回复",
+      "other": "其他",
+      "customAnswer": "自定义回复",
+      "submit": "提交回复",
+      "submitted": "回复已提交",
+      "expired": "原任务已不再等待回复，你仍可以把答案作为一条新消息发送。",
+      "submitFailed": "回复提交失败，请检查网络后重试。"
+    },
     "formatTable": {
       "file": "文件",
       "lineNumber": "行号",

@@ -91,6 +91,18 @@ class HarnessAdapter(ABC):
         """Forget provider state associated with one QwenPaw session."""
         del session_id
 
+    async def resolve_user_input(
+        self,
+        session_id: str,
+        request_id: str,
+        answers: dict[str, dict[str, list[str]]],
+    ) -> None:
+        """Resolve a provider turn waiting for interactive user input."""
+        del session_id, request_id, answers
+        raise HarnessOperationNotSupportedError(
+            "This backend does not support interactive user input.",
+        )
+
     @abstractmethod
     def run_turn(
         self,

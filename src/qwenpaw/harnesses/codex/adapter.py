@@ -31,6 +31,11 @@ from ..events import (
 )
 from .app_server import CodexAppServerClient, CodexAppServerError
 from .projection import project_runtime
+from .user_input import (
+    CodexAnswers,
+    CodexUserInputBroker,
+    PendingUserInputTimedOutError,
+)
 
 _TOOL_ITEM_TYPES = {
     "collabAgentToolCall",
@@ -55,6 +60,15 @@ _CODEX_CLI_INSTALL_MESSAGE = (
 )
 
 
+def _loaded_thread_key(client: Any, thread_id: str) -> tuple[int, int, str]:
+    """Identify a thread loaded into one app-server process.
+
+    A client restarts its process in place, so its id alone would keep a
+    thread marked loaded after the new process has never seen it.
+    """
+    return (id(client), getattr(client, "generation", 0), thread_id)
+
+
 class CodexAdapter(HarnessAdapter):
     """Run Codex threads through one workspace-scoped app-server."""
 
@@ -74,8 +88,9 @@ class CodexAdapter(HarnessAdapter):
         self._session_fingerprints: dict[str, str] = {}
         self._session_lock = asyncio.Lock()
         self._threads = self._load_threads()
-        self._loaded_threads: set[tuple[int, str]] = set()
+        self._loaded_threads: set[tuple[int, int, str]] = set()
         self._thread_contexts: dict[str, dict[str, Any]] = {}
+        self._user_inputs = CodexUserInputBroker()
         if hasattr(self._client, "set_server_request_handler"):
             self._client.set_server_request_handler(
                 self._handle_server_request,
@@ -434,6 +449,8 @@ class CodexAdapter(HarnessAdapter):
             raise
         finally:
             client.unsubscribe(queue)
+            if turn_id:
+                self._user_inputs.cancel_turn(thread_id, turn_id)
 
     @staticmethod
     def _turn_input(
@@ -517,7 +534,7 @@ class CodexAdapter(HarnessAdapter):
             thread_id = self._threads.pop(session_id, None)
             if thread_id:
                 self._loaded_threads = {
-                    key for key in self._loaded_threads if key[1] != thread_id
+                    key for key in self._loaded_threads if key[-1] != thread_id
                 }
                 self._thread_contexts.pop(thread_id, None)
             self._session_clients.pop(session_id, None)
@@ -527,8 +544,18 @@ class CodexAdapter(HarnessAdapter):
                 self._threads,
             )
 
+    async def resolve_user_input(
+        self,
+        session_id: str,
+        request_id: str,
+        answers: CodexAnswers,
+    ) -> None:
+        """Resume a Codex server request with console-provided answers."""
+        self._user_inputs.resolve(session_id, request_id, answers)
+
     async def stop(self) -> None:
         """Stop the workspace Codex process."""
+        self._user_inputs.cancel_all()
         clients = {
             id(client): client
             for client in (
@@ -553,7 +580,7 @@ class CodexAdapter(HarnessAdapter):
         async with self._session_lock:
             thread_id = self._threads.get(session_id)
             if thread_id:
-                loaded_key = (id(client), thread_id)
+                loaded_key = _loaded_thread_key(client, thread_id)
                 if loaded_key not in self._loaded_threads:
                     try:
                         await client.request(
@@ -581,7 +608,7 @@ class CodexAdapter(HarnessAdapter):
             if not thread_id:
                 raise CodexAppServerError("Codex did not return a thread id")
             self._threads[session_id] = thread_id
-            self._loaded_threads.add((id(client), thread_id))
+            self._loaded_threads.add(_loaded_thread_key(client, thread_id))
             await write_json_atomic_async(
                 self._session_path,
                 self._threads,
@@ -642,6 +669,8 @@ class CodexAdapter(HarnessAdapter):
         message: dict[str, Any],
     ) -> dict[str, Any]:
         method = str(message.get("method") or "")
+        if method == "item/tool/requestUserInput":
+            return await self._handle_user_input_request(message)
         if method not in {
             "item/commandExecution/requestApproval",
             "item/fileChange/requestApproval",
@@ -708,6 +737,85 @@ class CodexAdapter(HarnessAdapter):
                 else "decline"
             ),
         }
+
+    async def _handle_user_input_request(
+        self,
+        message: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Expose a Codex question as a resumable harness tool call."""
+        params = dict(message.get("params") or {})
+        thread_id = str(params.get("threadId") or "")
+        turn_id = str(params.get("turnId") or "")
+        item_id = str(params.get("itemId") or "")
+        context = self._thread_contexts.get(thread_id, {})
+        session_id = str(context.get("session_id") or "default")
+        raw_questions = params.get("questions") or []
+        questions = [
+            dict(question)
+            for question in raw_questions
+            if isinstance(question, dict)
+        ]
+        pending = self._user_inputs.register(
+            session_id=session_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            item_id=item_id,
+            questions=questions,
+        )
+        client = self._session_clients.get(session_id) or self._client
+        common_params = {
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "itemId": item_id or pending.request_id,
+            "requestId": pending.request_id,
+            "sessionId": session_id,
+        }
+        client.publish(
+            {
+                "method": "qwenpaw/item/tool/requestUserInput",
+                "params": {
+                    **common_params,
+                    "questions": questions,
+                    "expiresAt": pending.expires_at,
+                    "isBlocking": bool(params.get("isBlocking", True)),
+                },
+            },
+        )
+        answers: CodexAnswers = {}
+        status = "expired"
+        try:
+            answers = await self._user_inputs.wait(pending)
+            status = "answered"
+        except PendingUserInputTimedOutError:
+            status = "expired"
+        except asyncio.CancelledError:
+            status = "cancelled"
+            client.publish(
+                {
+                    "method": (
+                        "qwenpaw/item/tool/requestUserInput/completed"
+                    ),
+                    "params": {
+                        **common_params,
+                        "status": status,
+                        "answers": {},
+                    },
+                },
+            )
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise
+            return {"answers": {}}
+        client.publish(
+            {
+                "method": "qwenpaw/item/tool/requestUserInput/completed",
+                "params": {
+                    **common_params,
+                    "status": status,
+                },
+            },
+        )
+        return {"answers": answers}
 
     async def _run_review(
         self,
@@ -810,6 +918,39 @@ class CodexAdapter(HarnessAdapter):
     ) -> HarnessEvent | None:
         method = message.get("method")
         params = message.get("params") or {}
+        if method == "qwenpaw/item/tool/requestUserInput":
+            return HarnessEvent(
+                kind=HarnessEventKind.TOOL_STARTED,
+                item_id=str(params.get("itemId") or ""),
+                tool_name="request_user_input",
+                data={
+                    "arguments": {
+                        "provider_id": "codex",
+                        "request_id": params.get("requestId"),
+                        "session_id": params.get("sessionId"),
+                        "questions": params.get("questions") or [],
+                        "expires_at": params.get("expiresAt"),
+                        "is_blocking": bool(
+                            params.get("isBlocking", True),
+                        ),
+                    },
+                    "provider_type": "requestUserInput",
+                    "status": "inProgress",
+                },
+            )
+        if method == "qwenpaw/item/tool/requestUserInput/completed":
+            # Answers stay out of the persisted output: they can be secrets.
+            output = {"status": str(params.get("status") or "completed")}
+            return HarnessEvent(
+                kind=HarnessEventKind.TOOL_COMPLETED,
+                item_id=str(params.get("itemId") or ""),
+                tool_name="request_user_input",
+                text=json.dumps(output, ensure_ascii=False),
+                data={
+                    "provider_type": "requestUserInput",
+                    "status": output["status"],
+                },
+            )
         if method == "item/agentMessage/delta":
             return HarnessEvent(
                 kind=HarnessEventKind.TEXT_DELTA,

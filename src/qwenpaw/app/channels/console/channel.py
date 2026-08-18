@@ -551,11 +551,17 @@ class ConsoleChannel(BaseChannel):
                 },
             )
             yield f"data: {rl_event}\n\n"
+            # The frontend maps rate_limited to a no-op, so without a terminal
+            # event the composer would stay stuck in loading forever.
+            yield self._terminal_response_sse(str(e).strip())
             self._print_error(str(e).strip())
         except Exception as e:
             self._clear_session_turn_usage(session_id)
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
+            # This path used to only log locally, emitting nothing at all — the
+            # stream just closed and the client never learned the turn ended.
+            yield self._terminal_response_sse(err_msg)
             self._print_error(err_msg)
         finally:
             try:
@@ -694,6 +700,29 @@ class ConsoleChannel(BaseChannel):
         self._safe_print(
             f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n{_RED}{err}{_RESET}\n",
         )
+
+    @staticmethod
+    def _terminal_response_sse(error_message: str) -> str:
+        """Build a terminal ``response`` event for a stream that is giving up.
+
+        The frontend SDK leaves its composer in the loading state until a
+        ``{object: "response", status: <terminal>}`` event arrives — a stream
+        that merely stops leaves the user unable to send anything until they
+        reload or hit stop. Paths that abandon a turn without going through the
+        normal finalize (rate limits, unhandled errors) therefore have to emit
+        one themselves.
+
+        Only the terminal fields are sent: the SDK merges them onto the
+        response it has already accumulated, so partial output is preserved.
+        """
+        payload = _json.dumps(
+            {
+                "object": "response",
+                "status": RunStatus.Failed.value,
+                "error": {"code": "error", "message": error_message},
+            },
+        )
+        return f"data: {payload}\n\n"
 
     def _parts_to_text(
         self,

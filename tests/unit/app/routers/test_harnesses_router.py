@@ -13,6 +13,9 @@ from fastapi import HTTPException, Request
 
 from qwenpaw.app.routers import harnesses
 from qwenpaw.harnesses.base import HarnessOperationNotSupportedError
+from qwenpaw.harnesses.codex.user_input import (
+    PendingUserInputNotFoundError,
+)
 from qwenpaw.harnesses.events import HarnessProvider
 
 
@@ -167,3 +170,101 @@ async def test_claude_is_a_supported_provider() -> None:
 
     assert provider.id == "claude"
     assert provider.coming_soon is False
+
+
+@pytest.mark.asyncio
+async def test_user_input_endpoint_resolves_active_codex_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = AsyncMock()
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    config = SimpleNamespace(backend="codex", backend_settings={})
+    workspace = SimpleNamespace(config=config, harness_runtime=runtime)
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+    body = harnesses.HarnessUserInputRequest(
+        session_id="chat-1",
+        answers={"choice": {"answers": ["Second"]}},
+    )
+
+    response = await harnesses.post_harness_user_input(
+        "codex",
+        "request-1",
+        body,
+        cast(Request, object()),
+    )
+
+    assert response == {"ok": True}
+    runtime.adapter.assert_awaited_once_with("codex", {})
+    adapter.resolve_user_input.assert_awaited_once_with(
+        "chat-1",
+        "request-1",
+        {"choice": {"answers": ["Second"]}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_user_input_endpoint_reports_an_expired_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = AsyncMock()
+    adapter.resolve_user_input.side_effect = PendingUserInputNotFoundError(
+        "request-1",
+    )
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    config = SimpleNamespace(backend="codex", backend_settings={})
+    workspace = SimpleNamespace(config=config, harness_runtime=runtime)
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await harnesses.post_harness_user_input(
+            "codex",
+            "request-1",
+            harnesses.HarnessUserInputRequest(
+                session_id="chat-1",
+                answers={},
+            ),
+            cast(Request, object()),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "user_input_expired"
+
+
+@pytest.mark.asyncio
+async def test_user_input_endpoint_rejects_unsupported_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = AsyncMock()
+    adapter.resolve_user_input.side_effect = (
+        HarnessOperationNotSupportedError("not supported")
+    )
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    config = SimpleNamespace(backend="claude", backend_settings={})
+    workspace = SimpleNamespace(config=config, harness_runtime=runtime)
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await harnesses.post_harness_user_input(
+            "claude",
+            "request-1",
+            harnesses.HarnessUserInputRequest(
+                session_id="chat-1",
+                answers={},
+            ),
+            cast(Request, object()),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "user_input_not_supported"

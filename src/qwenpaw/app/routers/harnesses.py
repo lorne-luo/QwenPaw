@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
 from ...harnesses.base import HarnessAdapter, HarnessOperationNotSupportedError
+from ...harnesses.codex.user_input import (
+    PendingUserInputNotFoundError,
+    PendingUserInputSessionMismatchError,
+    PendingUserInputTimedOutError,
+)
 from ...harnesses.registry import get_provider
 
 router = APIRouter(prefix="/harnesses", tags=["harnesses"])
@@ -27,6 +32,19 @@ class HarnessStatusRequest(BaseModel):
     """Provider settings used for one live status probe."""
 
     settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class HarnessUserInputAnswer(BaseModel):
+    """One answer in the Codex request-user-input wire format."""
+
+    answers: list[str]
+
+
+class HarnessUserInputRequest(BaseModel):
+    """Answers for a provider turn waiting on console input."""
+
+    session_id: str = Field(min_length=1)
+    answers: dict[str, HarnessUserInputAnswer] = Field(default_factory=dict)
 
 
 @router.get("")
@@ -205,6 +223,61 @@ async def post_harness_logout(
             detail={
                 "code": "logout_not_supported",
                 "message": str(exc),
+            },
+        ) from exc
+    return {"ok": True}
+
+
+@router.post("/{provider_id}/user-input/{request_id}")
+async def post_harness_user_input(
+    provider_id: str,
+    request_id: str,
+    body: HarnessUserInputRequest,
+    request: Request,
+) -> dict:
+    """Resume a provider turn that is waiting for interactive answers."""
+    _supported_provider(provider_id)
+    workspace = await get_agent_for_request(request)
+    config = workspace.config
+    settings = (
+        dict(config.backend_settings) if config.backend == provider_id else {}
+    )
+    adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    answers = {
+        question_id: answer.model_dump()
+        for question_id, answer in body.answers.items()
+    }
+    try:
+        await adapter.resolve_user_input(
+            body.session_id,
+            request_id,
+            answers,
+        )
+    except HarnessOperationNotSupportedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "user_input_not_supported",
+                "message": str(exc),
+            },
+        ) from exc
+    except (
+        PendingUserInputNotFoundError,
+        PendingUserInputTimedOutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "user_input_expired",
+                "message": "This question is no longer waiting for an answer.",
+            },
+        ) from exc
+    except PendingUserInputSessionMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "user_input_session_mismatch",
+                "message": "This question belongs to another chat session.",
             },
         ) from exc
     return {"ok": True}

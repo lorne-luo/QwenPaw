@@ -5448,6 +5448,15 @@
     "runToolBatchRunning": "Running saved workflow",
     "runToolBatchProgress": "{{count}} steps",
     "runToolBatchStepCount": "Total steps: {{count}}",
+    "userInput": {
+      "title": "Codex needs your input",
+      "other": "Other",
+      "customAnswer": "Custom answer",
+      "submit": "Submit answer",
+      "submitted": "Answer submitted",
+      "expired": "The original turn is no longer waiting. You can send your answer as a new chat message.",
+      "submitFailed": "Could not submit the answer. Check your connection and try again."
+    },
     "formatTable": {
       "file": "File",
       "lineNumber": "Line",

@@ -36,6 +36,7 @@ class FakeCodexClient:
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, dict[str, Any]]] = []
+        self.published: list[dict[str, Any]] = []
         self.queue: asyncio.Queue[dict[str, Any]] | None = None
         self.stopped = False
         self.server_request_handler = None
@@ -177,6 +178,12 @@ class FakeCodexClient:
     def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
         assert queue is self.queue
         self.queue = None
+
+    def publish(self, message: dict[str, Any]) -> None:
+        """Record and forward an adapter-generated notification."""
+        self.published.append(message)
+        if self.queue is not None:
+            self.queue.put_nowait(message)
 
     async def stop(self) -> None:
         self.stopped = True
@@ -737,6 +744,68 @@ async def test_codex_permission_approval_uses_requested_permissions(
     }
     create_call = service.create_pending_summary.await_args.kwargs
     assert create_call["summary"].payload["permissions"] == permissions
+
+
+@pytest.mark.asyncio
+async def test_codex_user_input_is_streamed_and_resolved(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+    adapter._thread_contexts["thread-1"] = {"session_id": "chat-1"}
+    adapter._session_clients["chat-1"] = client
+    questions = [
+        {
+            "id": "choice",
+            "header": "Choice",
+            "question": "Which option?",
+            "options": [
+                {"label": "First", "description": "Use the first"},
+                {"label": "Second", "description": "Use the second"},
+            ],
+            "isOther": True,
+            "isSecret": False,
+        },
+    ]
+    task = asyncio.create_task(
+        adapter._handle_server_request(
+            {
+                "id": 7,
+                "method": "item/tool/requestUserInput",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-1",
+                    "questions": questions,
+                    "isBlocking": True,
+                },
+            },
+        ),
+    )
+
+    await asyncio.sleep(0)
+    started_message = client.published[0]
+    started = CodexAdapter._convert_notification(started_message)
+    request_id = started_message["params"]["requestId"]
+    answers = {"choice": {"answers": ["Second"]}}
+
+    await adapter.resolve_user_input("chat-1", request_id, answers)
+    result = await asyncio.wait_for(task, timeout=1)
+    completed = CodexAdapter._convert_notification(client.published[1])
+
+    assert result == {"answers": answers}
+    assert started is not None
+    assert started.kind == HarnessEventKind.TOOL_STARTED
+    assert started.item_id == "item-1"
+    assert started.tool_name == "request_user_input"
+    assert started.data["arguments"]["questions"] == questions
+    assert started.data["arguments"]["request_id"] == request_id
+    assert completed is not None
+    assert completed.kind == HarnessEventKind.TOOL_COMPLETED
+    assert '"status": "answered"' in completed.text
+    # Answers can be secrets (isSecret questions); Codex gets them through the
+    # JSON-RPC reply, so the persisted tool output must not echo them.
+    assert "Second" not in completed.text
 
 
 @pytest.mark.asyncio

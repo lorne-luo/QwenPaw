@@ -821,7 +821,14 @@ async def _skill_fallback_handler(
     display_name = post.get("name") or skill_name
     description = post.get("description") or ""
 
-    if not user_input:
+    # Opt-in: a skill with `invoke_without_input: true` in its SKILL.md
+    # frontmatter runs its default workflow even when invoked with no input.
+    # Compare as text so a quoted "false" does not read as truthy.
+    invoke_without_input = (
+        str(post.get("invoke_without_input", "")).strip().lower() == "true"
+    )
+
+    if not user_input and not invoke_without_input:
         desc = description or "No description."
         return Msg(
             name="assistant",

@@ -197,13 +197,17 @@ class ProviderManager(
 
     async def list_provider_info(self) -> List[ProviderInfo]:
         """Read explicit model membership without changing selection."""
+        # Custom providers come first: they are the ones the user added by
+        # hand, so they lead every list built from this call (chat model
+        # selector, `qwenpaw providers`, ACP, /model). Builtins keep their
+        # registration order from _init_builtins().
         tasks = [
             provider.get_info(include_candidates=False)
-            for provider in self.builtin_providers.values()
+            for provider in self.custom_providers.values()
         ]
         tasks += [
             provider.get_info(include_candidates=False)
-            for provider in self.custom_providers.values()
+            for provider in self.builtin_providers.values()
         ]
 
         provider_infos = await asyncio.gather(*tasks)

@@ -1529,6 +1529,37 @@ def test_migrate_legacy_file_and_persist_active_model(
     assert active_model_file.exists()
 
 
+async def test_list_provider_info_puts_custom_providers_first(
+    isolated_secret_dir,
+) -> None:
+    """Custom providers lead the list; builtins keep registration order.
+
+    Every provider list in the product is built from this call (chat model
+    selector, `qwenpaw providers`, ACP, the /model command), so the ordering
+    is the contract, not an implementation detail.
+    """
+    isolated_secret_dir.mkdir(parents=True, exist_ok=True)
+    legacy_file = isolated_secret_dir / "providers.json"
+    legacy_file.write_text(
+        json.dumps(LEGACY_PROVIDER, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    assert "mydash" in manager.custom_providers
+
+    infos = await manager.list_provider_info()
+    ids = [info.id for info in infos]
+
+    custom_ids = list(manager.custom_providers)
+    assert ids[: len(custom_ids)] == custom_ids
+
+    builtin_ids = list(manager.builtin_providers)
+    assert ids[len(custom_ids) : len(custom_ids) + len(builtin_ids)] == (
+        builtin_ids
+    )
+
+
 async def test_add_custom_provider_conflict_resolution_loops_until_unique(
     isolated_secret_dir,
 ) -> None:

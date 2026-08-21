@@ -242,6 +242,42 @@ export function getSenderTextareaFromTarget(
   return textarea instanceof HTMLTextAreaElement ? textarea : null;
 }
 
+/**
+ * Move the caret into the chat composer so the user can type immediately.
+ *
+ * The sender renders a Lexical contenteditable with a hidden textarea behind
+ * it holding the state, so the contenteditable is what has to receive focus —
+ * focusing the textarea gives no visible caret. Plain textarea senders are
+ * still handled as a fallback.
+ *
+ * @returns true when focus actually landed.
+ */
+export function focusChatComposer(): boolean {
+  const target = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[class*="sender"] [contenteditable="true"], [class*="sender"] textarea',
+    ),
+  ).find((el) => el.offsetParent !== null);
+  if (!target) return false;
+  target.focus();
+  return document.activeElement === target;
+}
+
+/**
+ * Focus the composer once it exists. A new chat may be created while the Chat
+ * page is still mounting (sidebar "+" pressed from another page), so retry
+ * across a few frames instead of giving up on the first miss.
+ */
+export function focusChatComposerWhenReady(maxFrames = 12): void {
+  let remaining = maxFrames;
+  const attempt = () => {
+    if (focusChatComposer()) return;
+    if (--remaining <= 0) return;
+    requestAnimationFrame(attempt);
+  };
+  requestAnimationFrame(attempt);
+}
+
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
  */

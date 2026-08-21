@@ -15,6 +15,7 @@ import BackupProgress from "./BackupProgress";
 import BackupScopeForm from "./BackupScopeForm";
 import type { ScopeFormValue } from "./BackupScopeForm";
 import styles from "./CreateBackupModal.module.less";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 interface Props {
   open: boolean;
@@ -32,6 +33,7 @@ export default function CreateBackupModal({
   resumeJob,
 }: Props) {
   const { t } = useTranslation();
+  const nameRef = useFocusOnOpen(open);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [scope, setScope] = useState<ScopeFormValue>(
@@ -119,6 +121,7 @@ export default function CreateBackupModal({
           <div>
             <div className={styles.fieldLabel}>{t("backup.name")}</div>
             <Input
+              ref={nameRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("backup.namePlaceholder")}

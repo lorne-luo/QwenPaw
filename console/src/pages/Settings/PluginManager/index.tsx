@@ -16,6 +16,7 @@ import { reloadFrontendPlugin } from "@/plugins/usePluginLoader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
 import { resumePendingPluginInstalls } from "./dependencyUpgrade";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
@@ -71,6 +72,7 @@ export default function PluginManagerPage() {
 
   const installModal = useInstallModal(handleInstalled);
 
+  useQuickCreate("core.plugin-manager", installModal.openModal);
   const tabItems = [
     {
       key: "installed",

@@ -3,6 +3,7 @@ import { Button, Modal, Input, Form, Divider, Typography, Space } from "antd";
 import { Package, Link, FolderOpen, FileArchive, X } from "lucide-react";
 import type { useInstallModal } from "../hooks/useInstallModal";
 import styles from "./InstallPluginModal.module.less";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 const { Text } = Typography;
 
@@ -27,6 +28,7 @@ export function InstallPluginModal({
   handleInstallUrl,
 }: Omit<InstallModalProps, "openModal">) {
   const { t } = useTranslation();
+  const sourceRef = useFocusOnOpen(installOpen);
 
   return (
     <>
@@ -118,6 +120,7 @@ export function InstallPluginModal({
               rules={[{ required: true, message: " " }]}
             >
               <Input
+                ref={sourceRef}
                 prefix={
                   <Link
                     size={14}

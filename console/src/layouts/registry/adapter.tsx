@@ -71,6 +71,8 @@ interface ToAntdOpts {
   decorateLabel?: (item: MenuItem, label: ReactNode) => ReactNode;
   /** Optional per-item className (e.g. shake animation for inbox). */
   getItemClassName?: (item: MenuItem) => string | undefined;
+  /** Optional trailing slot, right-aligned by antd (e.g. quick-create "+"). */
+  getExtra?: (item: MenuItem) => ReactNode;
 }
 
 type ItemWithChildren = MenuItem & { __children?: MenuItem[] };
@@ -83,7 +85,13 @@ export function toAntdItems(
   items: MenuItem[],
   opts: ToAntdOpts,
 ): MenuProps["items"] {
-  const { collapsed, iconSize = 16, decorateLabel, getItemClassName } = opts;
+  const {
+    collapsed,
+    iconSize = 16,
+    decorateLabel,
+    getItemClassName,
+    getExtra,
+  } = opts;
   return items
     .filter((i) => i.visible?.() !== false)
     .map((rawItem) => {
@@ -95,6 +103,8 @@ export function toAntdItems(
         label: decorated,
         icon: renderIcon(i.icon, iconSize),
         className: getItemClassName?.(i),
+        // Collapsed mode has no room for a trailing slot.
+        extra: collapsed ? undefined : getExtra?.(i),
       };
       if (i.__children && i.__children.length > 0) {
         // antd expects `children` on submenu / group items

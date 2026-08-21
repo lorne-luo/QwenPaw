@@ -20,6 +20,7 @@ import type { HarnessDiscoveredSkill } from "../../../api/modules/harness";
 import { PageHeader } from "@/components/PageHeader";
 import { useSkillsPage } from "./useSkillsPage";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 import { useMemo, useCallback, useState } from "react";
 import { LockKeyhole, Sparkles } from "lucide-react";
 
@@ -89,6 +90,7 @@ function SkillsPage() {
   } = useSkillsPage();
 
   const navigate = useNavigate();
+  useQuickCreate("core.skills", handleCreate);
   const [selectedProviderSkill, setSelectedProviderSkill] =
     useState<HarnessDiscoveredSkill | null>(null);
 

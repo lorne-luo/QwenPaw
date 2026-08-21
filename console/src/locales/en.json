@@ -442,7 +442,18 @@
     "toggleAgentNavigation": "Expand or collapse agent navigation",
     "usageModel": "Select model",
     "allModels": "All models",
-    "usageDetails": "Usage details"
+    "usageDetails": "Usage details",
+    "quickCreate": {
+      "cronJob": "New cron job",
+      "skill": "New skill",
+      "mcp": "Add MCP server",
+      "acp": "Add ACP agent",
+      "agent": "New agent",
+      "model": "Add provider",
+      "poolSkill": "New pool skill",
+      "backup": "New backup",
+      "plugin": "Install plugin"
+    }
   },
   "settingsCenter": {
     "backToApp": "Back to app",

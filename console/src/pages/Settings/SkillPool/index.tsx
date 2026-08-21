@@ -28,12 +28,14 @@ import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
 import type { PoolSkillSpec } from "../../../api/types";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 function SkillPoolPage() {
   const { t } = useTranslation();
   const pool = useSkillPool();
   const transferId = useId();
   const reduced = useReducedMotion();
+  useQuickCreate("core.skill-pool", pool.openCreate);
   const builtinNoticeLines = getBuiltinNoticeLines(pool.builtinNotice, t);
   const {
     visibleItems: visibleSkills,

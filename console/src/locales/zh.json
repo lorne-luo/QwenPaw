@@ -437,7 +437,18 @@
     "toggleAgentNavigation": "展开或收起智能体导航",
     "usageModel": "选择模型",
     "allModels": "全部模型",
-    "usageDetails": "详细用量"
+    "usageDetails": "详细用量",
+    "quickCreate": {
+      "cronJob": "新建定时任务",
+      "skill": "新建技能",
+      "mcp": "添加 MCP 服务",
+      "acp": "添加 ACP 智能体",
+      "agent": "新建智能体",
+      "model": "添加供应商",
+      "poolSkill": "新建技能池技能",
+      "backup": "新建备份",
+      "plugin": "安装插件"
+    }
   },
   "settingsCenter": {
     "backToApp": "返回应用",

@@ -5,6 +5,7 @@ import { CHAT_BASE_PATH } from "../../../utils/sessionRoute";
 import { useAgentStore } from "../../../stores/agentStore";
 import sessionApi from "../sessionApi";
 import { rotatePendingComposer } from "../chatInputDraft";
+import { focusChatComposerWhenReady } from "../utils";
 import { clearPendingModel } from "../../../features/session-settings/sessionModel";
 import { dispatchSessionModelChanged } from "../../../features/session-settings/sessionModelEvents";
 import { clearPendingThinking } from "../../../features/thinking/sessionThinkingApi";
@@ -12,6 +13,11 @@ import { clearPendingThinking } from "../../../features/thinking/sessionThinking
 /**
  * Open the blank composer. The SDK allocates a backend session on first send;
  * opening this page (including after deletion) must not persist an empty chat.
+ *
+ * Focuses the composer afterwards: a blank chat has nothing to read, so the
+ * only thing the user can do next is type. This is the single choke point for
+ * "new blank chat", so every entry point (sidebar "+", session list, chat
+ * header) gets the behaviour.
  */
 export function useCreateNewSession(): () => Promise<void> {
   const navigate = useNavigate();
@@ -33,5 +39,6 @@ export function useCreateNewSession(): () => Promise<void> {
       sessionId: "new",
       chatId: null,
     });
+    focusChatComposerWhenReady();
   }, [navigate, setCurrentSessionId]);
 }

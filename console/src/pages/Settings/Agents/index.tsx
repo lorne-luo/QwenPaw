@@ -13,6 +13,7 @@ import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 export default function AgentsPage() {
   const { t, i18n } = useTranslation();
@@ -50,6 +51,9 @@ export default function AgentsPage() {
     setSelectedSkills([]);
     setModalVisible(true);
   };
+
+  // Sidebar "+" opens the same create flow as the page's primary button.
+  useQuickCreate("core.agents", handleCreate);
 
   const handleEdit = async (agent: AgentSummary) => {
     try {

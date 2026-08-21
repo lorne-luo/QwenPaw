@@ -387,7 +387,18 @@
     "collapse": "Ciutkan bilah samping",
     "expand": "Luaskan bilah samping",
     "more": "Lainnya",
-    "toggleAgentNavigation": "Buka atau tutup navigasi agen"
+    "toggleAgentNavigation": "Buka atau tutup navigasi agen",
+    "quickCreate": {
+      "cronJob": "Tugas terjadwal baru",
+      "skill": "Keterampilan baru",
+      "mcp": "Tambah server MCP",
+      "acp": "Tambah agen ACP",
+      "agent": "Agen baru",
+      "model": "Tambah penyedia",
+      "poolSkill": "Keterampilan pool baru",
+      "backup": "Pencadangan baru",
+      "plugin": "Pasang plugin"
+    }
   },
   "settingsCenter": {
     "backToApp": "Kembali ke aplikasi",

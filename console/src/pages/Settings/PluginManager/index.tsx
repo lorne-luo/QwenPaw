@@ -12,6 +12,7 @@ import { OfficialPluginList } from "./components/OfficialPluginList";
 import { MarketPluginList } from "./components/MarketPluginList";
 import styles from "./index.module.less";
 import { reloadFrontendPlugin } from "@/plugins/usePluginLoader";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
@@ -47,6 +48,7 @@ export default function PluginManagerPage() {
 
   const installModal = useInstallModal(handleInstalled);
 
+  useQuickCreate("core.plugin-manager", installModal.openModal);
   const tabItems = [
     {
       key: "installed",

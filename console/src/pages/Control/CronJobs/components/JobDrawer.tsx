@@ -28,6 +28,7 @@ import { ExecutionModelSelect } from "./ExecutionModelSelect";
 import { RequestInput } from "./RequestInput";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 function ScheduleTime({
   value,
@@ -80,6 +81,7 @@ export function JobDrawer({
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
+  const nameRef = useFocusOnOpen(open);
   const timezoneOptions = useTimezoneOptions();
   const [saveInboxTouched, setSaveInboxTouched] = useState(false);
   const [activeTab, setActiveTab] = useState("schedule");
@@ -261,7 +263,7 @@ export function JobDrawer({
           rules={[{ required: true, message: t("cronJobs.pleaseInputName") }]}
           tooltip={t("cronJobs.nameTooltip")}
         >
-          <Input placeholder={t("cronJobs.jobNamePlaceholder")} />
+          <Input ref={nameRef} placeholder={t("cronJobs.jobNamePlaceholder")} />
         </Form.Item>
 
         <Form.Item

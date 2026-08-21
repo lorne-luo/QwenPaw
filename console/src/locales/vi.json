@@ -346,7 +346,18 @@
     "collapse": "Thu gọn thanh bên",
     "expand": "Mở rộng thanh bên",
     "more": "Thêm",
-    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
+    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử",
+    "quickCreate": {
+      "cronJob": "Tác vụ định kỳ mới",
+      "skill": "Kỹ năng mới",
+      "mcp": "Thêm máy chủ MCP",
+      "acp": "Thêm tác nhân ACP",
+      "agent": "Tác nhân mới",
+      "model": "Thêm nhà cung cấp",
+      "poolSkill": "Kỹ năng mới trong kho",
+      "backup": "Bản sao lưu mới",
+      "plugin": "Cài đặt plugin"
+    }
   },
   "settingsCenter": {
     "backToApp": "Quay lại ứng dụng",

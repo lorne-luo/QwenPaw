@@ -94,7 +94,6 @@ describe("compact approval controls", () => {
             settings: {},
           },
         ]}
-        sessionId="compact-test"
       />,
     );
 
@@ -184,7 +183,6 @@ describe("compact approval controls", () => {
             settings: { ask: true },
           },
         ]}
-        sessionId="mobile-test"
       />,
     );
 
@@ -206,7 +204,7 @@ describe("compact approval controls", () => {
     expect(manualOption).not.toBeNull();
     await user.click(manualOption!);
 
-    expect(localStorage.getItem("harness-approval-codex-mobile-test")).toBe(
+    expect(localStorage.getItem("harness-approval-codex")).toBe(
       "manual",
     );
     expect(trigger).toHaveAttribute("aria-expanded", "false");

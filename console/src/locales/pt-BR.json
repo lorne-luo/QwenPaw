@@ -3417,7 +3417,18 @@
     "collapse": "Recolher barra lateral",
     "expand": "Expandir barra lateral",
     "more": "Mais",
-    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
+    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente",
+    "quickCreate": {
+      "cronJob": "Nova tarefa agendada",
+      "skill": "Nova habilidade",
+      "mcp": "Adicionar servidor MCP",
+      "acp": "Adicionar agente ACP",
+      "agent": "Novo agente",
+      "model": "Adicionar provedor",
+      "poolSkill": "Nova habilidade do pool",
+      "backup": "Novo backup",
+      "plugin": "Instalar plugin"
+    }
   },
   "settingsCenter": {
     "backToApp": "Voltar ao aplicativo",

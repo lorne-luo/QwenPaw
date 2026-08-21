@@ -132,6 +132,28 @@
     border-radius: 12px 12px 0 0;
   }
 
+  // Quick-create "+" — always visible, so the affordance is discoverable
+  // without hovering every row to find which pages have one.
+  .quickCreateBtn {
+    display: inline-flex;
+    flex: none;
+    margin-left: auto;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    color: rgba(0, 0, 0, 0.45);
+    transition:
+      background 0.15s,
+      color 0.15s;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.1);
+      color: rgba(0, 0, 0, 0.88);
+    }
+  }
+
   &.siderExpanded {
     display: flex;
     flex-direction: column;
@@ -250,6 +272,11 @@
       padding-left: 8px !important;
     }
 
+    /* Trailing quick-create slot — antd's 16px gutter is too wide at 240px */
+    .qwenpaw-menu-item-extra {
+      padding-inline-start: 4px !important;
+    }
+
     /* Remove submenu indent - align with parent */
     .qwenpaw-menu-submenu .qwenpaw-menu-item {
       padding-left: 8px !important;
@@ -301,6 +328,15 @@
     background: var(--app-shell-bg);
   }
 
+  // Quick-create "+" (dark mode)
+  .quickCreateBtn {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: rgba(255, 255, 255, 0.95);
+    }
+  }
   :global {
     .qwenpaw-menu {
       background: var(--app-shell-bg) !important;

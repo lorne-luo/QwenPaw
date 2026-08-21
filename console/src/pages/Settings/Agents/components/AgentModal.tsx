@@ -25,6 +25,7 @@ import {
   MAIL_DOMAIN_WHITELIST,
   MAIL_ENTERPRISE_SERVICE_DOMAINS,
 } from "./mailDomains";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 const { Text } = Typography;
 
@@ -90,6 +91,7 @@ export function AgentModal({
   onCancel,
 }: AgentModalProps) {
   const { t } = useTranslation();
+  const agentIdRef = useFocusOnOpen(open, { enabled: !editingAgent });
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
@@ -228,7 +230,7 @@ export function AgentModal({
               },
             ]}
           >
-            <Input placeholder={t("agent.idPlaceholder")} />
+            <Input ref={agentIdRef} placeholder={t("agent.idPlaceholder")} />
           </Form.Item>
         )}
         <Form.Item

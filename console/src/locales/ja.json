@@ -3158,7 +3158,18 @@
     "collapse": "サイドバーを折りたたむ",
     "expand": "サイドバーを展開する",
     "more": "その他",
-    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
+    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ",
+    "quickCreate": {
+      "cronJob": "新しい定期タスク",
+      "skill": "新しいスキル",
+      "mcp": "MCP サーバーを追加",
+      "acp": "ACP エージェントを追加",
+      "agent": "新しいエージェント",
+      "model": "プロバイダーを追加",
+      "poolSkill": "新しいスキルプールスキル",
+      "backup": "新しいバックアップ",
+      "plugin": "プラグインをインストール"
+    }
   },
   "settingsCenter": {
     "backToApp": "アプリに戻る",

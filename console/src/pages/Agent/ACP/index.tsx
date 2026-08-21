@@ -38,6 +38,7 @@ import {
 } from "./components/acpFormValues";
 import styles from "../../Control/Channels/index.module.less";
 import stylesACP from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 const BUILTIN_ACP_ORDER = [
   "opencode",
@@ -325,6 +326,9 @@ function ACPPage() {
       stdio_buffer_limit_bytes: ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES,
     });
   };
+
+  // Sidebar "+" opens the same create flow as the page's primary button.
+  useQuickCreate("core.acp", handleCreateClick);
 
   const handleClose = () => {
     setDrawerOpen(false);

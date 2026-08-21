@@ -17,6 +17,7 @@ import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { SkillConfigEditor } from "../../../../components/SkillConfigEditor";
 import type { PoolMode } from "../useSkillPool";
 import styles from "../index.module.less";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 type FormInstance = ReturnType<typeof Form.useForm>[0];
 
@@ -74,6 +75,7 @@ export function PoolSkillDrawer({
   validateFrontmatter,
 }: PoolSkillDrawerProps) {
   const { t } = useTranslation();
+  const nameRef = useFocusOnOpen(mode === "create");
 
   return (
     <Drawer
@@ -246,7 +248,10 @@ export function PoolSkillDrawer({
               label={t("skillPool.skillName")}
               rules={[{ required: true, message: t("skills.pleaseInputName") }]}
             >
-              <Input placeholder={t("skillPool.skillNamePlaceholder")} />
+              <Input
+                ref={nameRef}
+                placeholder={t("skillPool.skillNamePlaceholder")}
+              />
             </Form.Item>
 
             <Form.Item

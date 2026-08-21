@@ -11,6 +11,8 @@ import { useMCP } from "./useMCP";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
+import { useFocusOnOpen } from "../../../hooks/useFocusOnOpen";
 
 type MCPTransport = "stdio" | "streamable_http" | "sse";
 
@@ -98,8 +100,22 @@ function MCPPage() {
         .includes(query.toLocaleLowerCase().trim()),
   );
   const [createModalOpen, setCreateModalOpen] = useState(false);
+
+  // Sidebar "+" opens the same create flow as the page's primary button.
+  useQuickCreate("core.mcp", () => setCreateModalOpen(true));
   const [activeTab, setActiveTab] = useState<"json" | "form">("form");
   const [createError, setCreateError] = useState<string | null>(null);
+  // The JSON editor is pre-filled with an example, so select it rather than
+  // dropping the caret at offset 0 where the first keystroke would corrupt the
+  // template: typing or pasting replaces it instead.
+  const jsonTextAreaRef = useFocusOnOpen(createModalOpen, {
+    cursor: "all",
+    enabled: activeTab === "json",
+  });
+  // The modal opens on the form tab, whose first field is the key.
+  const keyInputRef = useFocusOnOpen(createModalOpen, {
+    enabled: activeTab === "form",
+  });
 
   // JSON-import state
   const [newClientJson, setNewClientJson] = useState(`{
@@ -476,6 +492,7 @@ function MCPPage() {
                     </ul>
                   </div>
                   <Input.TextArea
+                    ref={jsonTextAreaRef}
                     value={newClientJson}
                     onChange={(e) => setNewClientJson(e.target.value)}
                     autoSize={{ minRows: 15, maxRows: 25 }}
@@ -499,6 +516,7 @@ function MCPPage() {
                         <span className={styles.formRequired}> *</span>
                       </label>
                       <Input
+                        ref={keyInputRef}
                         placeholder={t("mcp.form.keyPlaceholder")}
                         value={form.key}
                         onChange={(e) => setField("key", e.target.value)}

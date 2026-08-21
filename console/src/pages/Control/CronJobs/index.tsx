@@ -54,6 +54,7 @@ import {
 import { getCalendarDays } from "./calendar";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 type CronJob = CronJobSpecOutput;
 type JobFormValues = CronJob & {
@@ -189,6 +190,9 @@ function CronJobsPage() {
     });
     setDrawerOpen(true);
   };
+
+  // Sidebar "+" opens the same create drawer as the page's primary button.
+  useQuickCreate("core.cron-jobs", handleCreate);
 
   const handleOpenTemplateModal = () => {
     setTemplateModalOpen(true);

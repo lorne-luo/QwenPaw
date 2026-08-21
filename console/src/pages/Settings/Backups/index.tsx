@@ -27,6 +27,7 @@ import PreRestoreConfirmModal from "./restore/PreRestoreConfirmModal";
 import RestoreBackupModal from "./restore/RestoreBackupModal";
 import { useRestoreFlow } from "./restore/useRestoreFlow";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 export default function BackupsPage() {
   const { t } = useTranslation();
@@ -37,6 +38,9 @@ export default function BackupsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [resumeJob, setResumeJob] = useState<BackupJobSnapshot | null>(null);
+
+  // Sidebar "+" opens the same create flow as the page's primary button.
+  useQuickCreate("core.backups", () => setCreateOpen(true));
 
   /** Fetches backups and agents in parallel; both are needed before rendering the table. */
   const fetchData = useCallback(async () => {

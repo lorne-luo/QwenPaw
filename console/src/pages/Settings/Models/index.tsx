@@ -34,6 +34,7 @@ import {
 } from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
+import { useQuickCreate } from "../../../hooks/useQuickCreate";
 
 /* ------------------------------------------------------------------ */
 /* Main Page                                                           */
@@ -59,6 +60,9 @@ function ModelsPage() {
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
+
+  // Sidebar "+" opens the same create flow as the page's primary button.
+  useQuickCreate("core.models", () => setAddProviderOpen(true));
   const [searchQuery, setSearchQuery] = useState("");
   // Prevent browsers from autofilling the search input with saved credentials
   // (e.g. the username from the login page). Browsers skip read-only inputs

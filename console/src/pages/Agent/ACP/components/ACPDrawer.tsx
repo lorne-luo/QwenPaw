@@ -20,6 +20,7 @@ import {
 import { getWebsiteLang } from "../../../../layouts/constants";
 import styles from "./ACPDrawer.module.less";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 interface ACPDrawerProps {
   surfaceId?: string;
@@ -96,6 +97,7 @@ export function ACPDrawer({
     }
     return await onSubmit(values);
   });
+  const agentKeyRef = useFocusOnOpen(open, { enabled: canEditKey });
 
   return (
     <Drawer
@@ -163,7 +165,11 @@ export function ACPDrawer({
             },
           ]}
         >
-          <Input placeholder="my_custom_runner" disabled={!canEditKey} />
+          <Input
+            ref={agentKeyRef}
+            placeholder="my_custom_runner"
+            disabled={!canEditKey}
+          />
         </Form.Item>
 
         <div className={styles.switchRow}>

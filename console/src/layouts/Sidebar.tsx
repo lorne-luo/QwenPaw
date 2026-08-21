@@ -30,6 +30,7 @@ import {
   SquarePen as SparkNewChatLine,
   ChevronLeft as SparkOperateLeftLine,
   ChevronRight as SparkOperateRightLine,
+  Plus as SparkPlusLine,
 } from "lucide-react";
 import SidebarSessionList from "./SidebarSessionList";
 import DockableSidebar from "./DockableSidebar";
@@ -69,6 +70,8 @@ import {
   filterSidebarMenuItems,
   orderSidebarEntries,
 } from "./registry/sidebarEntries";
+import { QUICK_CREATE_SPECS, requestQuickCreate } from "./registry/quickCreate";
+import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
 import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
@@ -440,6 +443,41 @@ export default function Sidebar({
     setShakeInbox(false);
   }, []);
 
+  /**
+   * Open the create flow owned by a menu item's page, navigating there first
+   * when it isn't mounted. See registry/quickCreate.ts.
+   */
+  const handleQuickCreate = useCallback(
+    (menuId: string, path: string) => {
+      requestQuickCreate(menuId, path, location.pathname, navigate);
+    },
+    [location.pathname, navigate],
+  );
+
+  /** Small "+" affordance for menu rows whose page owns a create action. */
+  const renderQuickCreate = (
+    menuId: string,
+    path: string | undefined,
+  ): ReactNode => {
+    const spec = QUICK_CREATE_SPECS[menuId];
+    if (!spec || !path) return null;
+    const title = t(spec.tooltipKey, spec.tooltipFallback);
+    return (
+      <Tooltip title={title} placement="right">
+        <span
+          role="button"
+          aria-label={title}
+          className={styles.quickCreateBtn}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleQuickCreate(menuId, path);
+          }}
+        >
+          <SparkPlusLine size={14} />
+        </span>
+      </Tooltip>
+    );
+  };
   const collapsedNavItems = useMemo(() => {
     // Inbox in collapsed mode shows a dot overlay on its icon (kept Sidebar-local
     // for the same reason as decorateLabel: live state isn't menu data).
@@ -707,6 +745,7 @@ export default function Sidebar({
           >
             {entry.label}
           </motion.span>
+          {toolsMode === 2 && renderQuickCreate(entry.key, entry.path)}
         </button>
       </Tooltip>
     );

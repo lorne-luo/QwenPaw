@@ -4,6 +4,7 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
+import { useFocusOnOpen } from "../../../../../hooks/useFocusOnOpen";
 
 interface CustomProviderModalProps {
   open: boolean;
@@ -17,6 +18,7 @@ export function CustomProviderModal({
   onSaved,
 }: CustomProviderModalProps) {
   const { t } = useTranslation();
+  const providerIdRef = useFocusOnOpen(open);
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
@@ -93,7 +95,10 @@ export function CustomProviderModal({
             },
           ]}
         >
-          <Input placeholder={t("models.providerIdPlaceholder")} />
+          <Input
+            ref={providerIdRef}
+            placeholder={t("models.providerIdPlaceholder")}
+          />
         </Form.Item>
 
         <Form.Item

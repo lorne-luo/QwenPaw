@@ -20,6 +20,7 @@ import {
   SkillChannelSelect,
   type SkillChannelOptions,
 } from "./SkillChannelSelect";
+import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 export const MAX_TAGS = 8;
 export const MAX_TAG_LENGTH = 16;
@@ -64,6 +65,7 @@ export function SkillDrawer({
   onContentChange,
 }: SkillDrawerProps) {
   const { t, i18n } = useTranslation();
+  const nameRef = useFocusOnOpen(open, { enabled: !editing });
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
@@ -286,7 +288,10 @@ export function SkillDrawer({
               label={t("skills.name")}
               rules={[{ required: true, message: t("skills.pleaseInputName") }]}
             >
-              <Input placeholder={t("skills.skillNamePlaceholder")} />
+              <Input
+                ref={nameRef}
+                placeholder={t("skills.skillNamePlaceholder")}
+              />
             </Form.Item>
           ) : (
             <Form.Item name="name" label={t("skills.name")}>

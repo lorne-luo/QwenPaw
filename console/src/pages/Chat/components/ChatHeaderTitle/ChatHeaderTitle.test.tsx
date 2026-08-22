@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
+import type { AgentSummary } from "../../../../api/types/agents";
+import { useAgentStore } from "../../../../stores/agentStore";
 import ChatHeaderTitle from "./index";
 import styles from "./index.module.less";
 
@@ -33,6 +37,12 @@ vi.mock("../../sessionApi", () => ({
 vi.mock("../../../../stores/sessionListStore", () => ({
   syncSessionsGlobal: syncSessions,
 }));
+
+beforeEach(() => {
+  useAgentStore.setState({ selectedAgent: "default", agents: [] });
+});
+
+const agent = (id: string, name: string) => ({ id, name }) as AgentSummary;
 
 describe("ChatHeaderTitle", () => {
   it("displays the current session name", () => {
@@ -173,4 +183,119 @@ it("distinguishes duplicate titles with activity time and channel", async () => 
   ).toEqual(["2026-09-21T10:15:00.000Z", "2026-09-22T11:30:00.000Z"]);
   expect(menu).toHaveTextContent("console");
   expect(menu).toHaveTextContent("telegram");
+});
+
+describe("Selected agent label", () => {
+  it("shows the selected agent name left of the session switcher controls", () => {
+    useAgentStore.setState({
+      selectedAgent: "agent-research",
+      agents: [
+        agent("agent-research", "Research Bot"),
+        agent("agent-writer", "Writer"),
+      ],
+    });
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [
+        { id: "sess-1", name: "Chat A" },
+        { id: "sess-2", name: "Chat B" },
+      ],
+      currentSessionId: "sess-2",
+    });
+    renderWithProviders(<ChatHeaderTitle />);
+
+    const label = screen.getByText("Research Bot");
+    expect(label).toHaveClass(styles.agentLabel);
+    expect(screen.queryByText("agent-research")).not.toBeInTheDocument();
+    expect(screen.queryByText("Writer")).not.toBeInTheDocument();
+    const rename = screen.getByRole("button", { name: "Chat B" });
+    const switcher = screen.getByRole("button", { name: "chat.switchSession" });
+    expect(label.parentElement).toBe(rename.parentElement);
+    expect(label.nextElementSibling).toBe(rename);
+    expect(rename.nextElementSibling).toBe(switcher);
+  });
+
+  it("follows selected agent changes and never falls back to the raw id", () => {
+    useAgentStore.setState({
+      selectedAgent: "agent-research",
+      agents: [
+        agent("agent-research", "Research Bot"),
+        agent("agent-writer", "Writer"),
+      ],
+    });
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "sess-1", name: "My Chat" }],
+      currentSessionId: "sess-1",
+    });
+    renderWithProviders(<ChatHeaderTitle />);
+    expect(screen.getByText("Research Bot")).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "agent-writer" }));
+    expect(screen.getByText("Writer")).toBeInTheDocument();
+    expect(screen.queryByText("Research Bot")).not.toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "agent-missing" }));
+    expect(screen.queryByText("agent-missing")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "My Chat" }).parentElement
+        ?.firstElementChild,
+    ).not.toHaveClass(styles.agentLabel);
+  });
+
+  it("keeps the agent label beside the rename form while editing", async () => {
+    useAgentStore.setState({
+      selectedAgent: "agent-research",
+      agents: [agent("agent-research", "Research Bot")],
+    });
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "sess-edit", name: "Editable" }],
+      currentSessionId: "sess-edit",
+    });
+    renderWithProviders(<ChatHeaderTitle />);
+    await userEvent.click(screen.getByRole("button", { name: "Editable" }));
+
+    expect(screen.getByText("Research Bot")).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "chat.contextMenu.rename" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Mobile header layout", () => {
+  const read = (path: string) =>
+    readFileSync(join(process.cwd(), path), "utf8");
+  const titleStyles = read(
+    "src/pages/Chat/components/ChatHeaderTitle/index.module.less",
+  );
+  const chatStyles = read("src/pages/Chat/index.module.less");
+  const mobileBlock = (source: string, marker: string) => {
+    const start = source.indexOf(marker);
+    expect(start).toBeGreaterThanOrEqual(0);
+    return source.slice(start, source.indexOf("\n}\n", start) + 3);
+  };
+
+  it("lets the title block take the width left of the action group", () => {
+    const titleMobile = mobileBlock(
+      titleStyles,
+      "/* Mobile header: title fills the width before the action group. */",
+    );
+    expect(titleMobile).toContain("@media (max-width: 768px)");
+    expect(titleMobile).toMatch(/\.titleBlock \{[^}]*flex: 1 1 0;/);
+    expect(titleMobile).toMatch(/\.agentLabel \{[^}]*display: block;/);
+    expect(titleMobile).toMatch(/\.agentLabel \{[^}]*text-overflow: ellipsis;/);
+
+    const chatMobile = mobileBlock(
+      chatStyles,
+      "/* Mobile header: ChatHeaderTitle owns the free width. */",
+    );
+    expect(chatMobile).toMatch(/\.headerSpacer \{[^}]*display: none;/);
+  });
+
+  it("hides the agent label on desktop", () => {
+    const desktopRule = titleStyles.slice(
+      titleStyles.indexOf("\n.agentLabel {") + 1,
+    );
+    expect(desktopRule.slice(0, desktopRule.indexOf("}"))).toContain(
+      "display: none;",
+    );
+  });
 });

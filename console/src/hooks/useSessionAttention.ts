@@ -26,6 +26,10 @@ export function useSessionAttention(
   const markSeen = useSessionAttentionStore((state) => state.markSeen);
 
   useEffect(() => {
+    // An empty sidebar list is usually "not loaded yet" (initial state, or
+    // cleared on agent switch). Treating it as the first observation would
+    // baseline the agent with nothing and flood its history with green.
+    if (sessions.length === 0) return;
     initializeSessions(agentId, sessions);
   }, [agentId, initializeSessions, sessions]);
 

@@ -9,6 +9,7 @@ import logging
 import re
 import shutil
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from contextlib import nullcontext
 from typing import Any, Literal
@@ -27,6 +28,8 @@ from ...agents.memory.reme_embedding import (
 from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.memory.reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
+from ..chats.api import _is_app_owned_chat
+from ..chats.models import ChatSpec, SessionSource
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
     build_qwenpawmail_env as _build_qwenpawmail_env,
@@ -85,6 +88,7 @@ class AgentSummary(BaseModel):
     id: str
     name: str
     description: str
+    icon: str = ""
     workspace_dir: str
     enabled: bool
     pinned: bool
@@ -102,6 +106,31 @@ class AgentListResponse(BaseModel):
     """Response for listing agents."""
 
     agents: list[AgentSummary]
+
+
+class AgentSessionActivityItem(BaseModel):
+    """Run status and last completion of one main-list chat."""
+
+    id: str
+    status: Literal["idle", "running"]
+    # False for cron, subagent and inter-agent chats: they never color the
+    # agent, but are still listed so the first read-marker baseline covers
+    # every chat the sidebar shows.
+    counted: bool
+    last_finished_at: datetime | None = None
+
+
+class AgentSessionActivity(BaseModel):
+    """Main-list chats of one loaded agent."""
+
+    agent_id: str
+    sessions: list[AgentSessionActivityItem]
+
+
+class AgentSessionActivityResponse(BaseModel):
+    """Response for listing session activity of loaded agents."""
+
+    agents: list[AgentSessionActivity]
 
 
 class MemoryGraphNode(BaseModel):
@@ -305,6 +334,7 @@ class CreateAgentRequest(BaseModel):
     id: str | None = None
     name: str
     description: str = ""
+    icon: str = ""
     workspace_dir: str | None = None
     language: str | None = None
     skill_names: list[str] | None = None
@@ -546,6 +576,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     id=agent_id,
                     name=agent_config.name,
                     description=description,
+                    icon=agent_config.icon or "",
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
                     pinned=pinned,
@@ -577,6 +608,77 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
 
     return AgentListResponse(agents=agents)
+
+
+def _counts_for_agent_indicator(chat: ChatSpec) -> bool:
+    """Return whether a chat can color its agent in the agent list."""
+    return (
+        not _is_app_owned_chat(chat)
+        and chat.source == SessionSource.chat
+        and ":to:" not in (chat.session_id or "")
+    )
+
+
+async def _list_main_list_sessions(
+    workspace,
+) -> list[AgentSessionActivityItem]:
+    """Return status of each main-list chat in a loaded workspace."""
+    chats = await workspace.chat_manager.list_chats(archived=False)
+    tracker = workspace.task_tracker
+    sessions = []
+    for chat in chats:
+        if _is_app_owned_chat(chat):
+            continue
+        sessions.append(
+            AgentSessionActivityItem(
+                id=chat.id,
+                status=await tracker.get_status(chat.id),
+                counted=_counts_for_agent_indicator(chat),
+                last_finished_at=chat.last_finished_at,
+            ),
+        )
+    return sessions
+
+
+@router.get(
+    "/session-activity",
+    response_model=AgentSessionActivityResponse,
+    summary="List session activity of loaded agents",
+    description=(
+        "Get run status and last completion time of main-list chats for "
+        "every enabled agent that is already loaded. Never starts an agent."
+    ),
+)
+async def list_agent_session_activity(
+    request: Request = None,
+) -> AgentSessionActivityResponse:
+    """List per-agent session activity without starting any agent."""
+    if request is None:
+        return AgentSessionActivityResponse(agents=[])
+    manager = _get_multi_agent_manager(request)
+    config = await run_sync_io(load_config)
+
+    agents = []
+    for agent_id in _display_agent_order(config):
+        if not getattr(config.agents.profiles[agent_id], "enabled", True):
+            continue
+        workspace = manager.get_loaded_agent(agent_id)
+        if workspace is None:
+            continue
+        try:
+            sessions = await _list_main_list_sessions(workspace)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Failed to read session activity for agent %s",
+                sanitize_log_value(agent_id),
+                exc_info=True,
+            )
+            continue
+        agents.append(
+            AgentSessionActivity(agent_id=agent_id, sessions=sessions),
+        )
+
+    return AgentSessionActivityResponse(agents=agents)
 
 
 @router.put(
@@ -904,6 +1006,7 @@ async def create_agent(
         id=new_id,
         name=request.name,
         description=request.description,
+        icon=request.icon,
         workspace_dir=str(workspace_dir),
         backend=request.backend,
         backend_settings=request.backend_settings,

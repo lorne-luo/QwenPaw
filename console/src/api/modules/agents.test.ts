@@ -24,6 +24,23 @@ describe("agentsApi", () => {
     expect(result).toEqual(data);
   });
 
+  it("getSessionActivity calls GET /agents/session-activity", async () => {
+    const data = {
+      agents: [
+        {
+          agent_id: "a1",
+          sessions: [
+            { id: "c1", status: "idle", counted: true, last_finished_at: null },
+          ],
+        },
+      ],
+    };
+    vi.mocked(request).mockResolvedValue(data);
+    const result = await agentsApi.getSessionActivity();
+    expect(request).toHaveBeenCalledWith("/agents/session-activity");
+    expect(result).toEqual(data);
+  });
+
   it("getAgent calls GET /agents/${id}", async () => {
     const data = { name: "a1" } as any;
     vi.mocked(request).mockResolvedValue(data);

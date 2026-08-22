@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
+  CheckCheck,
   ChevronDown,
   Clock3,
   LockKeyhole,
@@ -208,6 +209,41 @@ export default function SessionGroupHeader({
             <MoreHorizontal size={14} />
           </button>
         </Dropdown>
+      )}
+    </div>
+  );
+}
+
+/** Header of the always-expanded group of running or not-yet-opened chats. */
+export function UnseenGroupHeader({
+  count,
+  onMarkAllSeen,
+}: {
+  count: number;
+  /** Shown only while some finished result in the group is still unseen. */
+  onMarkAllSeen?: () => void;
+}) {
+  const { t } = useTranslation();
+  const markAllLabel = t("chat.groups.markAllSeen", "Mark all as read");
+  return (
+    <div className={`${styles.header} ${styles.unseen}`}>
+      <span className={styles.kindIcon}>
+        <span className={styles.unseenDot} />
+      </span>
+      <span className={styles.label}>
+        {t("chat.groups.unseen", "Unfinished")}
+      </span>
+      <span className={styles.count}>{count}</span>
+      {onMarkAllSeen && (
+        <button
+          type="button"
+          className={styles.markAllSeen}
+          aria-label={markAllLabel}
+          title={markAllLabel}
+          onClick={onMarkAllSeen}
+        >
+          <CheckCheck size={14} />
+        </button>
       )}
     </div>
   );

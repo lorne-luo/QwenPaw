@@ -38,6 +38,8 @@ import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
+import { useAgentStore } from "../../stores/agentStore";
+import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -76,6 +78,21 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
     .slice()
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
+}
+
+/**
+ * Display name of the agent answering in this chat.
+ *
+ * Responses carry no agent id, so the label follows the currently selected
+ * agent. Returns undefined while the agent list is still loading so the
+ * caller can fall back to the welcome nick instead of flashing a raw id.
+ */
+function useAnsweringAgentName(): string | undefined {
+  const { t } = useTranslation();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const agents = useAgentStore((state) => state.agents);
+  const agent = agents.find((item) => item.id === selectedAgent);
+  return agent ? getAgentDisplayName(agent, t) : undefined;
 }
 
 const HostMessage = React.memo(function HostMessage({
@@ -209,7 +226,10 @@ function DefaultHostResponseCard({
 }) {
   const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
-  const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
+  const welcomeNick = useChatAnywhereOptions(
+    (options) => options.welcome?.nick,
+  );
+  const nick = useAnsweringAgentName() ?? welcomeNick;
   const nickNode =
     typeof nick === "string" || React.isValidElement(nick) ? nick : null;
   const mergedMessages = useMemo(

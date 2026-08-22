@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTime } from "./constants";
+import { formatTime, getLastActivityTime } from "./constants";
 
 // formatTime renders through Date#toLocaleString("zh-CN", ...), so its exact
 // text depends on the host locale and timezone. Every assertion below compares
@@ -145,5 +145,41 @@ describe("formatTime - output shape", () => {
         minute: "2-digit",
       }),
     );
+  });
+});
+
+describe("getLastActivityTime", () => {
+  it("prefers updated_at over an older created_at", () => {
+    expect(
+      getLastActivityTime({
+        created_at: "2026-09-01T12:00:00Z",
+        updated_at: "2026-09-20T12:00:00Z",
+      }),
+    ).toBe(Date.parse("2026-09-20T12:00:00Z"));
+  });
+
+  it("falls back to created_at when updated_at is missing", () => {
+    expect(
+      getLastActivityTime({
+        created_at: "2026-09-01T12:00:00Z",
+        updated_at: null,
+      }),
+    ).toBe(Date.parse("2026-09-01T12:00:00Z"));
+  });
+
+  it("treats a naive timestamp as UTC", () => {
+    expect(
+      getLastActivityTime({
+        created_at: null,
+        updated_at: "2026-09-20T12:00:00",
+      }),
+    ).toBe(Date.parse("2026-09-20T12:00:00Z"));
+  });
+
+  it("returns 0 when both timestamps are missing or unparseable", () => {
+    expect(getLastActivityTime({ created_at: null, updated_at: null })).toBe(0);
+    expect(
+      getLastActivityTime({ created_at: null, updated_at: "not a timestamp" }),
+    ).toBe(0);
   });
 });

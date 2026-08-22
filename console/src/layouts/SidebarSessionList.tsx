@@ -50,7 +50,9 @@ import { useCollapsedDateGroups } from "../hooks/useCollapsedDateGroups";
 import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
-import SessionGroupHeader from "../components/SessionGroupHeader";
+import SessionGroupHeader, {
+  UnseenGroupHeader,
+} from "../components/SessionGroupHeader";
 import SessionDateHeader from "../components/SessionDateHeader";
 import {
   DraggableSession,
@@ -61,7 +63,13 @@ import { chatApi } from "../api/modules/chat";
 import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
 import { useSessionAttention } from "../hooks/useSessionAttention";
+import { useSessionAttentionStore } from "../stores/sessionAttentionStore";
 import { useAgentStore } from "../stores/agentStore";
+import { getAgentDisplayName } from "../utils/agentDisplayName";
+import {
+  countsForAgentIndicator,
+  matchesSessionId,
+} from "../utils/agentSessionActivity";
 import styles from "./sidebarSessionList.module.less";
 
 /**
@@ -92,6 +100,7 @@ type FlatRow =
       count: number;
       collapsed: boolean;
     }
+  | { kind: "unseenHeader"; count: number; markable: boolean }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
 /**
@@ -133,6 +142,7 @@ interface VirtualRowData {
   pinGroup: (groupId: string, pinned: boolean) => void;
   deleteGroup: (groupId: string) => void;
   moveGroup: (groupId: string, offset: number) => void;
+  markAllSeen: () => void;
 }
 
 type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
@@ -188,6 +198,17 @@ const VirtualRow = React.memo(function VirtualRow({
       >
         <GroupHeaderContent row={row} data={data} />
       </SessionDropZone>
+    );
+  }
+
+  if (row.kind === "unseenHeader") {
+    return (
+      <div style={style}>
+        <UnseenGroupHeader
+          count={row.count}
+          onMarkAllSeen={row.markable ? data.markAllSeen : undefined}
+        />
+      </div>
     );
   }
 
@@ -280,6 +301,14 @@ export default function SidebarSessionList({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const agents = useAgentStore((state) => state.agents);
+  const agentName = getAgentDisplayName(
+    agents.find((agent) => agent.id === selectedAgent) ?? {
+      id: selectedAgent,
+      name: "",
+    },
+    t,
+  );
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
@@ -391,6 +420,50 @@ export default function SidebarSessionList({
     sortedSessions,
     currentSessionId,
   );
+
+  /** User chats still running or showing the green "new result" dot. They
+   *  lead the list in a fixed group, the chat on screen first, until their
+   *  result is opened; cron, subagent and inter-agent sessions keep their
+   *  place in their own groups. */
+  const unseenUserSessions = useMemo(() => {
+    const sessions = sortedSessions.filter(
+      (session) =>
+        countsForAgentIndicator(session) &&
+        (session.generating === true ||
+          session.status === "running" ||
+          unseenSessionIds.has(session.id)),
+    );
+    const currentIndex = currentSessionId
+      ? sessions.findIndex((session) =>
+          matchesSessionId(session, currentSessionId),
+        )
+      : -1;
+    if (currentIndex <= 0) return sessions;
+    return [
+      sessions[currentIndex],
+      ...sessions.slice(0, currentIndex),
+      ...sessions.slice(currentIndex + 1),
+    ];
+  }, [sortedSessions, unseenSessionIds, currentSessionId]);
+
+  /** Finished results in that group the user has not opened yet. */
+  const finishedUnseenSessions = useMemo(
+    () =>
+      unseenUserSessions.filter(
+        (session) =>
+          unseenSessionIds.has(session.id) &&
+          session.generating !== true &&
+          session.status !== "running",
+      ),
+    [unseenUserSessions, unseenSessionIds],
+  );
+
+  const markSeen = useSessionAttentionStore((state) => state.markSeen);
+  const markAllSeen = useCallback(() => {
+    for (const session of finishedUnseenSessions) {
+      markSeen(selectedAgent, session);
+    }
+  }, [finishedUnseenSessions, markSeen, selectedAgent]);
 
   const handleMove = useCallback(
     async (sessionId: string, groupId: string, expandTarget = true) => {
@@ -516,13 +589,24 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
+  /** Sessions shown in the regular sections: the unread group owns the rest. */
+  const unseenUserSessionIds = useMemo(
+    () => new Set(unseenUserSessions.map((session) => session.id)),
+    [unseenUserSessions],
+  );
+  const listedSessions = useMemo(
+    () =>
+      sortedSessions.filter((session) => !unseenUserSessionIds.has(session.id)),
+    [sortedSessions, unseenUserSessionIds],
+  );
+
   /**
    * Sections drive the virtual list: one per date bucket (date mode),
    * one per chat group (source mode), or a single flat section (none
    * mode). Every session renders — the virtualized list keeps large
    * histories cheap.
    */
-  const sections = useMemo<ListSection[]>(() => {
+  const baseSections = useMemo<ListSection[]>(() => {
     if (searchQuery.trim()) {
       if (filteredSessions.length === 0) return [];
       return [
@@ -542,8 +626,8 @@ export default function SidebarSessionList({
         return group === "today" || group === "week" ? group : "older";
       };
       const ordered = [
-        ...sortedSessions.filter((session) => session.pinned),
-        ...sortedSessions.filter((session) => !session.pinned),
+        ...listedSessions.filter((session) => session.pinned),
+        ...listedSessions.filter((session) => !session.pinned),
       ];
       return (["today", "week", "older"] as const)
         .map((tier): ListSection | null => {
@@ -568,7 +652,7 @@ export default function SidebarSessionList({
         .filter((section): section is ListSection => section !== null);
     }
     if (groupMode === "none") {
-      const ordered = groupChatsByDate(sortedSessions).flatMap(
+      const ordered = groupChatsByDate(listedSessions).flatMap(
         (dateGroup) => dateGroup.sessions,
       );
       if (ordered.length === 0) return [];
@@ -584,7 +668,10 @@ export default function SidebarSessionList({
     if (!groups) return [];
     // Source mode lists every group, empty ones included: an empty
     // group is still a drop target and a place to move conversations.
-    return groups.map(({ group, sessions }) => {
+    return groups.map(({ group, sessions: groupSessions }) => {
+      const sessions = groupSessions.filter(
+        (session) => !unseenUserSessionIds.has(session.id),
+      );
       const collapsed = isSessionDragging || collapsedGroups.has(group.id);
       return {
         header: {
@@ -609,10 +696,32 @@ export default function SidebarSessionList({
     groupMode,
     groups,
     isSessionDragging,
+    listedSessions,
     searchQuery,
-    sortedSessions,
     t,
+    unseenUserSessionIds,
   ]);
+
+  /** User chats with an unseen result lead the list in a fixed group,
+   *  whichever grouping mode is active. Search shows a flat result list. */
+  const sections = useMemo<ListSection[]>(() => {
+    if (searchQuery.trim() || unseenUserSessions.length === 0) {
+      return baseSections;
+    }
+    return [
+      {
+        header: {
+          kind: "unseenHeader",
+          count: unseenUserSessions.length,
+          markable: finishedUnseenSessions.length > 0,
+        },
+        sessions: unseenUserSessions,
+        groupId: null,
+        collapsed: false,
+      },
+      ...baseSections,
+    ];
+  }, [baseSections, finishedUnseenSessions, searchQuery, unseenUserSessions]);
 
   /**
    * Group that owns the active session, resolved through `groupChats`
@@ -724,6 +833,7 @@ export default function SidebarSessionList({
           ? SOURCE_GROUP_HEADER_HEIGHT
           : GROUP_HEADER_HEIGHT;
       }
+      if (row.kind === "unseenHeader") return GROUP_HEADER_HEIGHT;
       return row.kind === "dateHeader"
         ? DATE_HEADER_HEIGHT
         : SESSION_ROW_HEIGHT;
@@ -803,6 +913,7 @@ export default function SidebarSessionList({
       pinGroup,
       deleteGroup: handleDeleteGroup,
       moveGroup: handleMoveGroup,
+      markAllSeen,
     }),
     [
       flatRows,
@@ -826,6 +937,7 @@ export default function SidebarSessionList({
       pinGroup,
       handleDeleteGroup,
       handleMoveGroup,
+      markAllSeen,
     ],
   );
 
@@ -851,7 +963,10 @@ export default function SidebarSessionList({
             onClick={() => setHistoryCollapsed((c) => !c)}
           >
             <span className={styles.historyLabel}>
-              {t("chat.conversationHistory", "Conversation History")}
+              {t("chat.agentChats", {
+                name: agentName,
+                defaultValue: "{{name}} Chats",
+              })}
             </span>
             <span
               className={styles.historyChevron}

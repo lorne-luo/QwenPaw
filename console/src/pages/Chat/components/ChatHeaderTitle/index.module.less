@@ -11,12 +11,11 @@
   white-space: nowrap;
 
   @media (max-width: 768px) {
-    max-width: 120px;
+    max-width: none;
     font-size: var(--app-font-body);
   }
 
   @media (max-width: 480px) {
-    max-width: 90px;
     font-size: var(--app-font-secondary);
   }
 }
@@ -25,11 +24,7 @@
   max-width: 100px;
 
   @media (max-width: 768px) {
-    max-width: 70px;
-  }
-
-  @media (max-width: 480px) {
-    max-width: 55px;
+    max-width: none;
   }
 }
 
@@ -131,6 +126,10 @@
 .menuItemActive {
   color: var(--app-accent);
   flex-shrink: 0;
+}
+
+.agentLabel {
+  display: none;
 }
 
 .titleBlock {
@@ -265,4 +264,38 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Mobile header: title fills the width before the action group. */
+@media (max-width: 768px) {
+  .titleBlock {
+    flex: 1 1 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agentLabel {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 40%;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-secondary);
+    line-height: 18px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agentLabel + .titleEdit {
+    margin-left: 0;
+  }
+  .switchButton {
+    flex-shrink: 0;
+  }
+  .renameForm {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
 }

@@ -4,8 +4,8 @@ import api from "../../../api";
 import { chatApi } from "../../../api/modules/chat";
 import type { ChatUpdateRequest } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { getLastActivityTime, type Session } from "./components/constants";
 import { useAgentStore } from "../../../stores/agentStore";
-import type { Session } from "./components/constants";
 
 type SessionsState = {
   agentId: string;
@@ -313,13 +313,21 @@ export function useSessions() {
     () => currentState?.sessions ?? [],
     [currentState?.sessions],
   );
-  const activeSessions = useMemo(
-    () => allSessions.filter((session) => !session.archived),
+  // Every tab, table and mobile card list shows the most recent activity first.
+  const sortedSessions = useMemo(
+    () =>
+      [...allSessions].sort(
+        (a, b) => getLastActivityTime(b) - getLastActivityTime(a),
+      ),
     [allSessions],
   );
+  const activeSessions = useMemo(
+    () => sortedSessions.filter((session) => !session.archived),
+    [sortedSessions],
+  );
   const archivedSessions = useMemo(
-    () => allSessions.filter((session) => session.archived),
-    [allSessions],
+    () => sortedSessions.filter((session) => session.archived),
+    [sortedSessions],
   );
 
   return {

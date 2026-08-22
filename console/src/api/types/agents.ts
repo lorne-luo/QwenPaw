@@ -3,6 +3,7 @@ import type { ThinkingLevel } from "@/features/thinking/types";
 
 import type { ModelSlotConfig } from "./provider";
 import type { HarnessCapabilities } from "../modules/harness";
+import type { ChatStatus } from "./chat";
 
 export type AgentStartupStatus =
   | "disabled"
@@ -15,6 +16,8 @@ export interface AgentSummary {
   id: string;
   name: string;
   description: string;
+  /** Emoji avatar; empty/absent falls back to the default bot icon. */
+  icon?: string;
   workspace_dir: string;
   enabled: boolean;
   pinned?: boolean;
@@ -39,6 +42,25 @@ export interface AgentListResponse {
 export interface ReorderAgentsResponse {
   success: boolean;
   agent_ids: string[];
+}
+
+export interface AgentSessionActivityItem {
+  /** Backend chat id (the sidebar session's realId). */
+  id: string;
+  status: ChatStatus;
+  /** False for cron, subagent and inter-agent chats (never color the agent). */
+  counted: boolean;
+  last_finished_at?: string | null;
+}
+
+export interface AgentSessionActivity {
+  agent_id: string;
+  sessions: AgentSessionActivityItem[];
+}
+
+/** Main-list sessions of enabled, already-loaded agents. */
+export interface AgentSessionActivityResponse {
+  agents: AgentSessionActivity[];
 }
 
 export interface AgentMailCredential {
@@ -124,6 +146,7 @@ export interface AgentProfileConfig {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
   workspace_dir?: string;
   backend?: AgentBackend;
   backend_settings?: {
@@ -171,6 +194,7 @@ export interface CreateAgentRequest {
   id?: string;
   name: string;
   description?: string;
+  icon?: string;
   workspace_dir?: string;
   language?: string;
   skill_names?: string[];

@@ -14,7 +14,13 @@ import {
   afterEach,
   afterAll,
 } from "vitest";
-import { act, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useLocation } from "react-router-dom";
@@ -51,6 +57,8 @@ const mocks = vi.hoisted(() => ({
   refreshAgents: vi.fn().mockResolvedValue(undefined),
   language: "en",
   renderActualSettingsPanel: false,
+  refreshActivity: vi.fn().mockResolvedValue(undefined),
+  activityByAgent: {} as Record<string, string | undefined>,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -87,6 +95,7 @@ vi.mock("../stores/agentStore", () => ({
         id: "agent-1",
         name: "Primary",
         enabled: true,
+        startup_status: "running",
         backend: "qwenpaw",
         backend_capabilities: { workspace_ui: true },
       },
@@ -94,6 +103,16 @@ vi.mock("../stores/agentStore", () => ({
     setSelectedAgent: mocks.setSelectedAgent,
     refreshAgents: mocks.refreshAgents,
   }),
+}));
+
+vi.mock("../stores/agentSessionActivityStore", () => ({
+  useAgentSessionActivityStore: (
+    selector: (state: { refresh: typeof mocks.refreshActivity }) => unknown,
+  ) => selector({ refresh: mocks.refreshActivity }),
+}));
+
+vi.mock("../hooks/useAgentActivity", () => ({
+  useAgentActivityMap: () => mocks.activityByAgent,
 }));
 
 vi.mock("../plugins/registry/hooks", () => ({
@@ -257,6 +276,7 @@ const iconStubs = vi.hoisted(() => {
     SparkNewChatLine: make("new-chat"),
     SparkOperateLeftLine: make("operate-left"),
     SparkOperateRightLine: make("operate-right"),
+    SparkPlusLine: make("plus"),
   };
 });
 
@@ -456,6 +476,8 @@ describe("Sidebar", () => {
     mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
     mocks.language = "en";
     mocks.renderActualSettingsPanel = false;
+    mocks.refreshActivity.mockClear().mockResolvedValue(undefined);
+    mocks.activityByAgent = {};
   });
 
   it("keeps plugin fills and navigation alive through floating and docking", async () => {
@@ -867,6 +889,25 @@ describe("Sidebar", () => {
       screen.getByRole("button", { name: "Collapse tools" }),
     ).toHaveAttribute("aria-expanded", "true");
     open.mockRestore();
+  });
+
+  it("refreshes agent activity when the collapsed agent popover opens", async () => {
+    mocks.activityByAgent = { "agent-1": "unseen" };
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    const agentButton = await screen.findByRole("button", {
+      name: "agent.selectAgent",
+    });
+    expect(mocks.refreshActivity).not.toHaveBeenCalled();
+
+    fireEvent.click(agentButton);
+
+    expect(mocks.refreshActivity).toHaveBeenCalledOnce();
+    const option = await screen.findByRole("button", { name: /Primary/ });
+    expect(within(option).getByRole("status")).toHaveAttribute(
+      "data-activity",
+      "unseen",
+    );
   });
 
   it("renders registered plugin shortcuts unless the user hides them", async () => {

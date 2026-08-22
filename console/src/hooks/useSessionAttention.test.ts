@@ -12,7 +12,10 @@ const T0 = "2026-09-16T10:00:00.000Z";
 const T1 = "2026-09-16T11:00:00.000Z";
 
 function resetStore() {
-  useSessionAttentionStore.setState({ seenFinishedAt: {} });
+  useSessionAttentionStore.setState({
+    seenFinishedAt: {},
+    baselinedAgents: {},
+  });
 }
 
 function setVisible(visible: boolean) {
@@ -323,7 +326,10 @@ describe("useSessionAttentionStore actions", () => {
   });
 
   it("keeps the same state object when nothing needs initialising", () => {
-    useSessionAttentionStore.setState({ seenFinishedAt: { "a1:s1": T0 } });
+    useSessionAttentionStore.setState({
+      seenFinishedAt: { "a1:s1": T0 },
+      baselinedAgents: { a1: true },
+    });
     const before = useSessionAttentionStore.getState();
     before.initializeSessions("a1", [{ id: "s1", lastFinishedAt: T0 }]);
     expect(useSessionAttentionStore.getState()).toBe(before);

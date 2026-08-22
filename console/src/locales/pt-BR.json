@@ -3669,6 +3669,8 @@
     "newTask": "Nova tarefa",
     "newChat": "Novo chat",
     "groups": {
+      "unseen": "Não concluídas",
+      "markAllSeen": "Marcar todas como lidas",
       "cronShort": "Agendado",
       "subagentShort": "Subagente"
     },
@@ -3837,7 +3839,7 @@
       "groupBySource": "Por origem",
       "groupByNone": "Sem agrupamento"
     },
-    "conversationHistory": "Histórico de conversas",
+    "agentChats": "Conversas de {{name}}",
     "history": {
       "empty": "Sem histórico de conversas"
     },

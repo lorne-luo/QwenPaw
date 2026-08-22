@@ -30,6 +30,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { useTranslation } from "react-i18next";
 import { SharedModal } from "@/components/interaction/SharedModal";
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import { resolveAgentStatus } from "@/components/AgentStatusIndicator/status";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
@@ -129,7 +130,10 @@ const AgentTile = memo(function AgentTile({
           className={styles.open}
           onClick={() => onOpen(agent.id)}
         >
-          <strong>{getAgentDisplayName(agent, t)}</strong>
+          <span className={styles.nameRow}>
+            <AgentAvatar icon={agent.icon} size={20} />
+            <strong>{getAgentDisplayName(agent, t)}</strong>
+          </span>
           <span>
             {agent.backend === "qwenpaw"
               ? agent.active_model?.model || t("agent.modelPlaceholder")

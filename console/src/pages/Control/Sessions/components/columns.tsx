@@ -1,7 +1,7 @@
 import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { ColumnsType } from "antd/es/table";
-import { formatTime, type Session } from "./constants";
+import { formatTime, getLastActivityTime, type Session } from "./constants";
 import { CHANNEL_COLORS } from "../../../../constants/channel";
 import styles from "../index.module.less";
 
@@ -67,8 +67,6 @@ export const useSessionColumns = (
       key: "created_at",
       width: 180,
       render: (timestamp: string | number | null) => formatTime(timestamp),
-      sorter: (a: Session, b: Session) =>
-        toUTCTime(a.created_at) - toUTCTime(b.created_at),
     },
     {
       title: "UpdatedAt",
@@ -77,8 +75,8 @@ export const useSessionColumns = (
       width: 180,
       render: (timestamp: string | number | null) => formatTime(timestamp),
       sorter: (a: Session, b: Session) =>
-        toUTCTime(a.updated_at) - toUTCTime(b.updated_at),
-      defaultSortOrder: isArchived ? undefined : "descend",
+        getLastActivityTime(a) - getLastActivityTime(b),
+      defaultSortOrder: "descend",
     },
   ];
 
@@ -91,7 +89,6 @@ export const useSessionColumns = (
       render: (timestamp: string | number | null) => formatTime(timestamp),
       sorter: (a: Session, b: Session) =>
         toUTCTime(a.archived_at) - toUTCTime(b.archived_at),
-      defaultSortOrder: "descend",
     });
   }
 

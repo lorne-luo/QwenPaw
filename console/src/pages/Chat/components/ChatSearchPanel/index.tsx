@@ -134,7 +134,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
           const chat = validChats[chatIndex];
           const chatId = chat.id;
           const chatName = chat.name || "New Chat";
-          const chatTimestamp = chat.created_at;
+          const chatTimestamp = chat.updated_at ?? chat.created_at;
 
           setSearchProgress(`${chatIndex + 1}/${totalChats}`);
 

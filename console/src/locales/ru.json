@@ -3362,6 +3362,8 @@
     "newTask": "Новая задача",
     "newChat": "Новый чат",
     "groups": {
+      "unseen": "Незавершённые",
+      "markAllSeen": "Отметить все как прочитанные",
       "cronShort": "Расписание",
       "subagentShort": "Субагент"
     },
@@ -3515,7 +3517,7 @@
       "groupBySource": "По источнику",
       "groupByNone": "Без группировки"
     },
-    "conversationHistory": "История диалогов",
+    "agentChats": "Чаты {{name}}",
     "history": {
       "empty": "Нет истории чатов"
     },

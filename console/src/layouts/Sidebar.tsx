@@ -26,7 +26,6 @@ import {
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  Bot as SparkAgentLine,
   SquarePen as SparkNewChatLine,
   ChevronLeft as SparkOperateLeftLine,
   ChevronRight as SparkOperateRightLine,
@@ -53,6 +52,8 @@ import {
   setSidebarCollapsedPreference,
 } from "../utils/sidebarCollapsedPreference";
 import { useAgentStore } from "../stores/agentStore";
+import { useAgentSessionActivityStore } from "../stores/agentSessionActivityStore";
+import { useAgentActivityMap } from "../hooks/useAgentActivity";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
@@ -74,6 +75,7 @@ import { QUICK_CREATE_SPECS, requestQuickCreate } from "./registry/quickCreate";
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
+import { AgentAvatar } from "../components/AgentAvatar";
 import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
 import { getAgentDisplayName } from "../utils/agentDisplayName";
 import { isAgentAvailableInChat } from "../utils/agentVisibility";
@@ -215,6 +217,10 @@ export default function Sidebar({
   const { selectedAgent, agents, setSelectedAgent, refreshAgents } =
     useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+  const activityByAgent = useAgentActivityMap();
+  const refreshActivity = useAgentSessionActivityStore(
+    (state) => state.refresh,
+  );
   const availableAgents = useMemo(
     () =>
       agents.filter((agent) => agent.enabled && isAgentAvailableInChat(agent)),
@@ -801,6 +807,7 @@ export default function Sidebar({
                 open={agentPopoverOpen}
                 onOpenChange={(open) => {
                   setAgentPopoverOpen(open);
+                  if (open) void refreshActivity();
                   if (open && agents.length === 0) {
                     void refreshAgents().catch(() => {});
                   }
@@ -833,8 +840,9 @@ export default function Sidebar({
                           <AgentStatusIndicator
                             status={agent.startup_status}
                             enabled={agent.enabled}
+                            activity={activityByAgent[agent.id]}
                           />
-                          <SparkAgentLine size={18} />
+                          <AgentAvatar icon={agent.icon} size={18} />
                           <span className={styles.collapsedAgentName}>
                             {getAgentDisplayName(agent, t)}
                           </span>
@@ -860,7 +868,7 @@ export default function Sidebar({
                     aria-label={t("agent.selectAgent")}
                     aria-expanded={agentPopoverOpen}
                   >
-                    <SparkAgentLine size={18} />
+                    <AgentAvatar icon={currentAgent?.icon} size={18} />
                   </button>
                 </Tooltip>
               </Popover>

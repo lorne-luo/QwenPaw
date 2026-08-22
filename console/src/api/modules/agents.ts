@@ -7,6 +7,7 @@ import type {
   CreateAgentRequest,
   CopyAgentRequest,
   AgentProfileRef,
+  AgentSessionActivityResponse,
   MemoryGraphSnapshot,
   MemoryTagPage,
   MemoryTagFilePage,
@@ -59,6 +60,10 @@ export type ReMeMemoryRuntimeStatus = ReMeMemoryStatusResponse["runtime"];
 export const agentsApi = {
   // List all agents
   listAgents: () => request<AgentListResponse>("/agents"),
+
+  // Session status of enabled, already-loaded agents (never starts one)
+  getSessionActivity: () =>
+    request<AgentSessionActivityResponse>("/agents/session-activity"),
 
   // Get agent details
   getAgent: (agentId: string, signal?: AbortSignal) =>

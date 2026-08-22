@@ -1171,6 +1171,9 @@
     "nameRequired": "Please enter agent name",
     "namePlaceholder": "e.g.: My Agent",
     "descriptionPlaceholder": "Briefly describe this agent's purpose...",
+    "icon": "Icon",
+    "iconPlaceholder": "Emoji, e.g. 🤖",
+    "iconHelp": "Optional emoji shown as the agent avatar. Leave empty for the default icon.",
     "workspaceHelp": "Leave empty to auto-generate in ~/.qwenpaw/workspaces/<id>",
     "dragHandleTooltip": "Drag to reorder agents",
     "reorderSuccess": "Agent order saved",
@@ -4423,6 +4426,8 @@
     "groups": {
       "create": "New group",
       "namePlaceholder": "Group name",
+      "unseen": "Unfinished",
+      "markAllSeen": "Mark all as read",
       "uncategorized": "Uncategorized",
       "cron": "Scheduled task conversations",
       "cronShort": "Cron",
@@ -4454,7 +4459,7 @@
       "groupBySource": "By source",
       "groupByNone": "No grouping"
     },
-    "conversationHistory": "Conversation History",
+    "agentChats": "{{name}} Chats",
     "history": {
       "empty": "No chat history"
     },

@@ -1188,6 +1188,8 @@
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {
+      "unseen": "Chưa hoàn thành",
+      "markAllSeen": "Đánh dấu tất cả đã đọc",
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con"
     },
@@ -1303,7 +1305,7 @@
       "searchConversations": "Tìm kiếm…",
       "noConversations": "Không có hội thoại"
     },
-    "conversationHistory": "Lịch sử hội thoại",
+    "agentChats": "Trò chuyện với {{name}}",
     "history": {
       "empty": "Không có lịch sử trò chuyện"
     },

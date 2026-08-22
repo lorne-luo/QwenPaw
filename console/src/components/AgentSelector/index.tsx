@@ -2,7 +2,6 @@ import { Popover, Select, Tooltip } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import {
-  Bot,
   CheckCircle,
   ChevronDown,
   ChevronRight,
@@ -16,6 +15,8 @@ import {
   ChevronUp as SparkUpLine,
 } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
+import { useAgentSessionActivityStore } from "../../stores/agentSessionActivityStore";
+import { useAgentActivityMap } from "../../hooks/useAgentActivity";
 import { agentsApi } from "../../api/modules/agents";
 import type { AgentSummary } from "../../api/types/agents";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,7 @@ import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
+import { AgentAvatar } from "../AgentAvatar";
 import { useAgentLongPress } from "./useAgentLongPress";
 import { isAgentAvailableInChat } from "../../utils/agentVisibility";
 import styles from "./index.module.less";
@@ -51,6 +53,16 @@ export default function AgentSelector({
   const [disabledExpanded, setDisabledExpanded] = useState(false);
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [pinningAgentId, setPinningAgentId] = useState<string | null>(null);
+  const activityByAgent = useAgentActivityMap();
+  const refreshActivity = useAgentSessionActivityStore(
+    (state) => state.refresh,
+  );
+
+  // The list renders immediately; activity arrives later and updates in place.
+  const handleOpenChange = (open: boolean) => {
+    setDropdownOpen(open);
+    if (open) void refreshActivity();
+  };
 
   const loadAgents = useCallback(
     async (showLoading = true, reportError = true) => {
@@ -285,10 +297,11 @@ export default function AgentSelector({
           <AgentStatusIndicator
             status={agent.startup_status}
             enabled={agent.enabled}
+            activity={activityByAgent[agent.id]}
           />
         </div>
         <div className={styles.agentOptionIcon}>
-          <Bot size={16} strokeWidth={2} />
+          <AgentAvatar icon={agent.icon} size={16} strokeWidth={2} />
         </div>
         <div className={styles.agentOptionContent}>
           <div className={styles.agentOptionName}>
@@ -337,7 +350,7 @@ export default function AgentSelector({
     return (
       <Popover
         open={dropdownOpen}
-        onOpenChange={setDropdownOpen}
+        onOpenChange={handleOpenChange}
         placement="rightTop"
         trigger="click"
         classNames={{ root: styles.collapsedAgentPopover }}
@@ -461,12 +474,17 @@ export default function AgentSelector({
               if (event.key === "Escape") closeCollapsedMenu();
             }}
           >
-            <Bot size={18} strokeWidth={2} />
+            <AgentAvatar
+              icon={currentAgentInfo?.icon}
+              size={18}
+              strokeWidth={2}
+            />
             {currentAgentInfo && (
               <span className={styles.collapsedStatusIndicator}>
                 <AgentStatusIndicator
                   status={currentAgentInfo.startup_status}
                   enabled={currentAgentInfo.enabled}
+                  activity={activityByAgent[currentAgentInfo.id]}
                 />
               </span>
             )}
@@ -504,7 +522,7 @@ export default function AgentSelector({
         optionLabelProp="label"
         virtual={false}
         classNames={{ popup: { root: styles.agentSelectorDropdown } }}
-        onOpenChange={setDropdownOpen}
+        onOpenChange={handleOpenChange}
         suffixIcon={
           dropdownOpen ? <SparkUpLine size={20} /> : <SparkDownLine size={20} />
         }
@@ -581,8 +599,9 @@ export default function AgentSelector({
                   <AgentStatusIndicator
                     status={agent.startup_status}
                     enabled={agent.enabled}
+                    activity={activityByAgent[agent.id]}
                   />
-                  <Bot size={14} strokeWidth={2} />
+                  <AgentAvatar icon={agent.icon} size={14} strokeWidth={2} />
                   <span>{getAgentDisplayName(agent, t)}</span>
                 </div>
               }
@@ -602,8 +621,9 @@ export default function AgentSelector({
                     <AgentStatusIndicator
                       status={agent.startup_status}
                       enabled={agent.enabled}
+                      activity={activityByAgent[agent.id]}
                     />
-                    <Bot size={14} strokeWidth={2} />
+                    <AgentAvatar icon={agent.icon} size={14} strokeWidth={2} />
                     <span>{getAgentDisplayName(agent, t)}</span>
                   </div>
                 }

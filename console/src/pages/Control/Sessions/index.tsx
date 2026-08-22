@@ -410,6 +410,7 @@ function SessionsPage() {
               <div className={styles.mobileSessionMeta}>
                 <span>ID: {session.id}</span>
                 {session.user_id && <span>User: {session.user_id}</span>}
+                <span>Updated: {formatTime(session.updated_at)}</span>
                 <span>Created: {formatTime(session.created_at)}</span>
               </div>
               <div className={styles.mobileSessionActions}>

@@ -1,8 +1,8 @@
 import { Select } from "antd";
-import { Bot } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import { useAgentStore } from "@/stores/agentStore";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
@@ -46,7 +46,7 @@ export default function SettingsAgentSelector() {
                 status={agent?.startup_status}
                 enabled={agent?.enabled}
               />
-              <Bot size={15} />
+              <AgentAvatar icon={agent?.icon} size={15} />
               <span>{label}</span>
             </span>
           );
@@ -60,7 +60,7 @@ export default function SettingsAgentSelector() {
                   status={agent?.startup_status}
                   enabled={agent?.enabled}
                 />
-                <Bot size={15} />
+                <AgentAvatar icon={agent?.icon} size={15} />
                 <span>{label}</span>
               </span>
               {agent?.backend && (

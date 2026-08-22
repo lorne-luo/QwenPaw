@@ -28,10 +28,20 @@ const mockListProps = vi.hoisted(() => ({
     itemSize: (index: number) => number;
   },
 }));
+const mockUnseenSessionIds = vi.hoisted(() => vi.fn());
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (
+      key: string,
+      fallback?: string | { defaultValue?: string; name?: string },
+    ) =>
+      typeof fallback === "object"
+        ? (fallback.defaultValue ?? key).replace(
+            "{{name}}",
+            fallback.name ?? "",
+          )
+        : fallback ?? key,
     i18n: { language: "en" },
   }),
 }));
@@ -105,7 +115,7 @@ vi.mock("../hooks/useRevealActiveChatGroup", () => ({
 }));
 
 vi.mock("../hooks/useSessionAttention", () => ({
-  useSessionAttention: () => new Set<string>(),
+  useSessionAttention: () => mockUnseenSessionIds(),
 }));
 
 vi.mock("../components/SessionItem", () => ({
@@ -147,6 +157,22 @@ vi.mock("../components/SessionGroupHeader", () => ({
     >
       {group.name} {count}
     </button>
+  ),
+  UnseenGroupHeader: ({
+    count,
+    onMarkAllSeen,
+  }: {
+    count: number;
+    onMarkAllSeen?: () => void;
+  }) => (
+    <>
+      <div data-testid="unseen-group-header">{count}</div>
+      {onMarkAllSeen && (
+        <button type="button" onClick={onMarkAllSeen}>
+          mark-all-seen
+        </button>
+      )}
+    </>
   ),
 }));
 
@@ -192,12 +218,16 @@ vi.mock("../hooks/useAppMessage", () => ({
   }),
 }));
 
-vi.mock("../stores/agentStore", () => ({
-  useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
-    selector
-      ? selector({ selectedAgent: mockSelectedAgent.current })
-      : { selectedAgent: mockSelectedAgent.current },
-}));
+vi.mock("../stores/agentStore", () => {
+  const state = () => ({
+    selectedAgent: mockSelectedAgent.current,
+    agents: [{ id: "agent-1", name: "Research Bot" }],
+  });
+  return {
+    useAgentStore: (selector?: (s: ReturnType<typeof state>) => unknown) =>
+      selector ? selector(state()) : state(),
+  };
+});
 
 vi.mock("../stores/sessionListStore", () => ({
   useSessionListStore: (selector?: (s: { sessions: unknown[] }) => unknown) =>
@@ -206,6 +236,7 @@ vi.mock("../stores/sessionListStore", () => ({
 }));
 
 import SidebarSessionList from "./SidebarSessionList";
+import { useSessionAttentionStore } from "../stores/sessionAttentionStore";
 
 // ---- Fixtures --------------------------------------------------------------
 
@@ -283,6 +314,7 @@ function mockData(
     expandGroup: vi.fn(),
     initializeCollapsedGroups: vi.fn(),
   });
+  mockUnseenSessionIds.mockReturnValue(new Set<string>());
 }
 
 describe("SidebarSessionList", () => {
@@ -567,6 +599,204 @@ describe("SidebarSessionList", () => {
     expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
   });
 
+  it("leads the date view with the unread group too", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
+    const unseenChat = { ...sessionA, id: "sess-unseen" };
+    mockData([sessionA, unseenChat]);
+    mockUnseenSessionIds.mockReturnValue(new Set(["sess-unseen"]));
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("unseen-group-header")).toBeTruthy();
+    });
+
+    const rows = screen
+      .getAllByTestId(/^(unseen-group-header|date-header|session-item-)/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(rows.slice(0, 2)).toEqual([
+      "unseen-group-header",
+      "session-item-sess-unseen",
+    ]);
+    expect(rows.filter((row) => row === "session-item-sess-unseen")).toEqual([
+      "session-item-sess-unseen",
+    ]);
+  });
+
+  it("leads the list with a fixed group of unseen and running user chats", async () => {
+    const unseenChat = { ...sessionA, id: "sess-unseen", sessionId: "s1" };
+    const unseenCron = { ...sessionA, id: "sess-cron", source: "cron" };
+    const unseenTalkTo = {
+      ...sessionA,
+      id: "sess-talk",
+      sessionId: "default:to:helper:1:abc",
+    };
+    const unseenRunning = {
+      ...sessionA,
+      id: "sess-running",
+      status: "running",
+    };
+    mockData([sessionA, unseenCron, unseenTalkTo, unseenRunning, unseenChat]);
+    const groupsData = mockChatGroups();
+    mockChatGroups.mockReturnValue({
+      ...groupsData,
+      groups: [
+        ...groupsData.groups,
+        { id: "cron", name: "Cron", order: 1, kind: "cron", pinned: false },
+      ],
+    });
+    mockUnseenSessionIds.mockReturnValue(
+      new Set(["sess-unseen", "sess-cron", "sess-talk", "sess-running"]),
+    );
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("unseen-group-header")).toBeTruthy();
+    });
+
+    expect(screen.getByTestId("unseen-group-header").textContent).toBe("2");
+    const rows = screen
+      .getAllByTestId(/^(unseen-group-header|group-header-|session-item-)/)
+      .map((el) => {
+        const id = el.getAttribute("data-testid") ?? "";
+        return id.startsWith("group-header-")
+          ? `group:${id.slice("group-header-".length)}`
+          : id;
+      });
+    // Only user chats move up; they are not listed again in their own group.
+    expect(rows.slice(0, 4)).toEqual([
+      "unseen-group-header",
+      "session-item-sess-running",
+      "session-item-sess-unseen",
+      "group:default",
+    ]);
+    expect(rows.filter((row) => row === "session-item-sess-unseen")).toEqual([
+      "session-item-sess-unseen",
+    ]);
+    expect(rows.filter((row) => row === "session-item-sess-running")).toEqual([
+      "session-item-sess-running",
+    ]);
+    expect(rows).toContain("session-item-sess-talk");
+    expect(rows).toContain("session-item-sess-cron");
+  });
+
+  it("puts the running chat on screen at the top of the unread group", async () => {
+    const unseenChat = { ...sessionA, id: "sess-unseen" };
+    const currentRunning = {
+      ...sessionA,
+      id: "sess-current",
+      status: "running",
+      generating: true,
+    };
+    mockData([sessionA, unseenChat, currentRunning]);
+    mockUnseenSessionIds.mockReturnValue(new Set(["sess-unseen"]));
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/sess-current"],
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("unseen-group-header")).toBeTruthy();
+    });
+
+    expect(screen.getByTestId("unseen-group-header").textContent).toBe("2");
+    const rows = screen
+      .getAllByTestId(/^(unseen-group-header|group-header|session-item-)/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(rows.slice(0, 4)).toEqual([
+      "unseen-group-header",
+      "session-item-sess-current",
+      "session-item-sess-unseen",
+      "group-header-default",
+    ]);
+  });
+
+  it("matches the running chat on screen by its backend id", async () => {
+    const unseenChat = { ...sessionA, id: "sess-unseen" };
+    const currentRunning = {
+      ...sessionA,
+      id: "1700000000000-abc123",
+      realId: "uuid-current",
+      status: "running",
+      generating: true,
+    };
+    mockData([sessionA, unseenChat, currentRunning]);
+    mockUnseenSessionIds.mockReturnValue(new Set(["sess-unseen"]));
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/uuid-current"],
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("unseen-group-header")).toBeTruthy();
+    });
+
+    const rows = screen
+      .getAllByTestId(/^(unseen-group-header|session-item-)/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(rows.slice(0, 3)).toEqual([
+      "unseen-group-header",
+      "session-item-1700000000000-abc123",
+      "session-item-sess-unseen",
+    ]);
+  });
+
+  it("keeps an idle, already seen chat on screen in its own group", async () => {
+    mockData([sessionA]);
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/sess-a"],
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId("unseen-group-header")).toBeNull();
+  });
+
+  it("marks finished unseen chats read and leaves running ones", async () => {
+    useSessionAttentionStore.setState({ seenFinishedAt: {} });
+    const done = {
+      ...sessionA,
+      id: "sess-done",
+      lastFinishedAt: "2026-10-20T10:00:00.000Z",
+    };
+    const running = {
+      ...sessionA,
+      id: "sess-run",
+      status: "running",
+      generating: true,
+      lastFinishedAt: "2026-10-19T10:00:00.000Z",
+    };
+    mockData([sessionA, done, running]);
+    mockUnseenSessionIds.mockReturnValue(new Set(["sess-done", "sess-run"]));
+    renderWithProviders(<SidebarSessionList />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "mark-all-seen" }),
+    );
+    expect(useSessionAttentionStore.getState().seenFinishedAt).toEqual({
+      "agent-1:sess-done": "2026-10-20T10:00:00.000Z",
+    });
+  });
+
+  it("offers no mark-all-read action while every unread chat is running", async () => {
+    const running = {
+      ...sessionA,
+      id: "sess-run",
+      status: "running",
+      generating: true,
+    };
+    mockData([sessionA, running]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("unseen-group-header")).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "mark-all-seen" })).toBeNull();
+  });
+
+  it("hides the unread group when nothing is unseen", async () => {
+    mockData([sessionA]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("unseen-group-header")).toBeNull();
+  });
+
   it("routes session clicks through the injected callback", async () => {
     const onSessionClick = vi.fn();
     mockData([sessionA]);
@@ -613,12 +843,12 @@ describe("SidebarSessionList", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
   });
 
-  it("collapses and expands the conversation history section", async () => {
+  it("collapses and expands the agent chats section", async () => {
     mockData([sessionA]);
     renderWithProviders(<SidebarSessionList />);
     const historyBtn = screen
       .getAllByRole("button")
-      .find((b) => b.textContent?.includes("Conversation History"));
+      .find((b) => b.textContent?.includes("Research Bot Chats"));
     expect(historyBtn).toBeTruthy();
     fireEvent.click(historyBtn!);
     // Collapsed: search input disappears

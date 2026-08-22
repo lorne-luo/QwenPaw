@@ -22,9 +22,26 @@
   background: var(--app-fill-faint);
 }
 
+/* Fixed group: nothing to toggle, so hovering must not look clickable. */
+.unseen,
+.unseen:hover {
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: default;
+}
+
+.unseenDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  box-shadow: 0 0 5px 1px rgba(82, 196, 26, 0.25);
+}
+
 .chevron,
 .kindIcon,
 .more,
+.markAllSeen,
 .pinMark,
 .lockMark {
   .session-header-icon();
@@ -80,9 +97,27 @@
   background: var(--app-fill);
 }
 
-.more:focus-visible {
+.more:focus-visible,
+.markAllSeen:focus-visible {
   outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
   outline-offset: var(--app-focus-ring-offset);
+}
+
+/* Always visible: the mobile drawer has no hover to reveal it. */
+.markAllSeen {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.markAllSeen:hover {
+  background: var(--app-fill);
+  color: var(--app-text);
 }
 
 .renameInput {

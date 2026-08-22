@@ -266,7 +266,9 @@ describe("Sidebar overflow layout", () => {
     expect(pinnedRegion).toContain("<SidebarSessionList");
     expect(pinnedRegion).toContain("<History size={18} />");
     expect(pinnedRegion).toContain("open={agentPopoverOpen}");
-    expect(pinnedRegion).toContain("<SparkAgentLine size={18} />");
+    expect(pinnedRegion).toContain(
+      "<AgentAvatar icon={currentAgent?.icon} size={18} />",
+    );
   });
 
   it("removes the standalone chat navigation entry", () => {

@@ -13,6 +13,8 @@ import { chatApi } from "../../../../api/modules/chat";
 import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
 import { getBackendId } from "../../../../layouts/useSidebarSessionListData";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { useAgentStore } from "../../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 
 const ChatHeaderTitle: React.FC = () => {
   const { sessions, currentSessionId } = useChatAnywhereSessionsState();
@@ -41,6 +43,12 @@ const ChatHeaderTitle: React.FC = () => {
     return () => window.clearInterval(timer);
   }, []);
   const { codingMode } = useCodingMode();
+  const selectedAgent = useAgentStore((state) =>
+    state.agents.find((agent) => agent.id === state.selectedAgent),
+  );
+  const agentName = selectedAgent
+    ? getAgentDisplayName(selectedAgent, t)
+    : null;
   const currentSession = sessions.find(
     (s) =>
       !!currentSessionId &&
@@ -153,6 +161,11 @@ const ChatHeaderTitle: React.FC = () => {
   return (
     <div className={styles.titleBlock}>
       <div className={styles.titleRow}>
+        {agentName && (
+          <span className={styles.agentLabel} title={agentName}>
+            {agentName}
+          </span>
+        )}
         {editing ? (
           <form
             className={styles.renameForm}

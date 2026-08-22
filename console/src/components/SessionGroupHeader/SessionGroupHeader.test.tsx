@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import type { ChatGroup } from "../../api/types/chat";
-import SessionGroupHeader from "./index";
+import SessionGroupHeader, { UnseenGroupHeader } from "./index";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -68,5 +68,23 @@ describe("SessionGroupHeader", () => {
     await user.keyboard("{Enter}");
     expect(onRename).toHaveBeenCalledWith("Project Alpha");
     expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("renders the unread group as a fixed, non-interactive header", () => {
+    renderWithProviders(<UnseenGroupHeader count={2} />);
+
+    expect(screen.getByText("Unfinished")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("calls onMarkAllSeen from the unread group header button", () => {
+    const onMarkAllSeen = vi.fn();
+    renderWithProviders(
+      <UnseenGroupHeader count={2} onMarkAllSeen={onMarkAllSeen} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+    expect(onMarkAllSeen).toHaveBeenCalledTimes(1);
   });
 });

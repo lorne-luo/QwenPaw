@@ -17,6 +17,19 @@ const normalizeTimestamp = (timestamp: string): string => {
   return timestamp + "Z";
 };
 
+/**
+ * Epoch ms of a session's last activity: updated_at, falling back to
+ * created_at. Returns 0 when neither is usable so untimed rows sort last.
+ */
+export const getLastActivityTime = (
+  session: Pick<Session, "created_at" | "updated_at">,
+): number => {
+  const raw = session.updated_at ?? session.created_at;
+  if (!raw) return 0;
+  const time = new Date(normalizeTimestamp(raw)).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
 export const formatTime = (timestamp: string | number | null): string => {
   if (timestamp === null || timestamp === undefined) return "N/A";
   const normalized =

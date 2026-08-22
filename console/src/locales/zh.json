@@ -935,6 +935,9 @@
     "nameRequired": "请输入智能体名称",
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
+    "icon": "图标",
+    "iconPlaceholder": "输入 emoji，例如 🤖",
+    "iconHelp": "可选，作为智能体头像展示的 emoji。留空则使用默认图标。",
     "workspaceHelp": "留空将自动生成在 ~/.qwenpaw/workspaces/<id> 目录",
     "dragHandleTooltip": "拖拽调整智能体顺序",
     "reorderSuccess": "智能体顺序已保存",
@@ -4275,6 +4278,8 @@
     "groups": {
       "create": "新建分组",
       "namePlaceholder": "分组名称",
+      "unseen": "未完成",
+      "markAllSeen": "全部标为已读",
       "uncategorized": "未分组",
       "cron": "定时任务对话",
       "cronShort": "定时任务",
@@ -4306,7 +4311,7 @@
       "groupBySource": "按来源",
       "groupByNone": "不分组"
     },
-    "conversationHistory": "历史对话",
+    "agentChats": "{{name}}聊天",
     "history": {
       "empty": "暂无聊天记录"
     },

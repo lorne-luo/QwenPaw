@@ -1172,6 +1172,8 @@
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
+      "unseen": "Belum selesai",
+      "markAllSeen": "Tandai semua sudah dibaca",
       "cronShort": "Terjadwal",
       "subagentShort": "Subagen"
     },
@@ -1320,7 +1322,7 @@
       "searchConversations": "Cari…",
       "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan",
+    "agentChats": "Percakapan {{name}}",
     "history": {
       "empty": "Tidak ada riwayat obrolan"
     },

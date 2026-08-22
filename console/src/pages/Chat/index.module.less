@@ -390,6 +390,13 @@
   min-width: 0;
 }
 
+/* Mobile header: ChatHeaderTitle owns the free width. */
+@media (max-width: 768px) {
+  .headerSpacer {
+    display: none;
+  }
+}
+
 @media (max-width: 768px) {
   .chatMessagesArea :global {
     [class*="chat-anywhere-default-header-right"] {

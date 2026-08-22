@@ -4,6 +4,7 @@
 Covers the highest-value flows:
 
 - ``GET /agents`` — list all agents
+- ``GET /agents/session-activity`` — loaded agents' main-list chats
 - ``GET /agents/{id}`` — fetch single agent, 404 on missing
 - ``PUT /agents/order`` — reject duplicate or mismatched IDs (400)
 - ``DELETE /agents/{id}`` — refuse to delete ``default`` (400)
@@ -15,6 +16,7 @@ Covers the highest-value flows:
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,6 +30,8 @@ from qwenpaw.agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
 from qwenpaw.app.agent_startup import AgentStartupStatus
+from qwenpaw.app.chats.models import ChatSpec, SessionSource
+from qwenpaw.app.routers import agents as agents_module
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
     CreateAgentRequest,
@@ -37,6 +41,7 @@ from qwenpaw.app.routers.agents import (
     create_agent,
     get_agent,
     get_agent_memory_graph,
+    list_agent_session_activity,
     reorder_agents,
     router as agents_router,
     update_backend_settings,
@@ -235,6 +240,197 @@ def test_list_agents_preserves_unknown_backend(client, fake_config):
     assert bot["name"] == "Configured Bot"
     assert bot["backend"] == "missing"
     assert bot["backend_capabilities"] == {}
+
+
+# ---------------------------------------------------------------------------
+# GET /agents/session-activity
+# ---------------------------------------------------------------------------
+
+_FINISHED_AT = datetime(2026, 10, 3, 8, 30, tzinfo=timezone.utc)
+
+
+def _chat(chat_id: str, **overrides) -> ChatSpec:
+    fields = {
+        "id": chat_id,
+        "session_id": f"console:{chat_id}",
+        "user_id": "user",
+    }
+    fields.update(overrides)
+    return ChatSpec(**fields)
+
+
+def _loaded_workspace(chats, statuses=None):
+    statuses = statuses or {}
+    workspace = MagicMock(name="Workspace")
+    workspace.chat_manager.list_chats = AsyncMock(return_value=chats)
+    workspace.task_tracker.get_status = AsyncMock(
+        side_effect=lambda chat_id: statuses.get(chat_id, "idle"),
+    )
+    return workspace
+
+
+def _activity_config(*refs: AgentProfileRef):
+    config = MagicMock(name="AppConfig")
+    config.agents.profiles = {ref.id: ref for ref in refs}
+    config.agents.agent_order = [ref.id for ref in refs]
+    return config
+
+
+def _get_session_activity(client, manager_mock, config, workspaces):
+    manager_mock.get_loaded_agent.side_effect = workspaces.get
+    manager_mock.get_agent = AsyncMock()
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=config,
+    ):
+        return client.get("/api/agents/session-activity")
+
+
+def test_session_activity_returns_loaded_agent_chats(client, manager_mock):
+    workspace = _loaded_workspace(
+        [
+            _chat("busy"),
+            _chat("done", last_finished_at=_FINISHED_AT),
+        ],
+        statuses={"busy": "running"},
+    )
+
+    response = _get_session_activity(
+        client,
+        manager_mock,
+        _activity_config(_ref("default"), _ref("bot")),
+        {"default": workspace, "bot": _loaded_workspace([])},
+    )
+
+    assert response.status_code == 200
+    agents = response.json()["agents"]
+    assert [agent["agent_id"] for agent in agents] == ["default", "bot"]
+    sessions = agents[0]["sessions"]
+    assert [(item["id"], item["status"]) for item in sessions] == [
+        ("busy", "running"),
+        ("done", "idle"),
+    ]
+    assert sessions[0]["last_finished_at"] is None
+    finished_at = datetime.fromisoformat(sessions[1]["last_finished_at"])
+    assert finished_at == _FINISHED_AT
+    assert agents[1]["sessions"] == []
+
+
+def test_session_activity_skips_disabled_and_unloaded_agents(
+    client,
+    manager_mock,
+):
+    disabled_workspace = _loaded_workspace([_chat("hidden")])
+
+    response = _get_session_activity(
+        client,
+        manager_mock,
+        _activity_config(
+            _ref("default"),
+            _ref("off", enabled=False),
+            _ref("cold"),
+        ),
+        {
+            "default": _loaded_workspace([_chat("seen")]),
+            "off": disabled_workspace,
+        },
+    )
+
+    assert response.status_code == 200
+    agents = response.json()["agents"]
+    assert [agent["agent_id"] for agent in agents] == ["default"]
+    manager_mock.get_loaded_agent.assert_any_call("cold")
+    disabled_workspace.chat_manager.list_chats.assert_not_awaited()
+    manager_mock.get_agent.assert_not_called()
+    manager_mock.get_agent.assert_not_awaited()
+
+
+def test_session_activity_flags_chats_that_color_the_agent(
+    client,
+    manager_mock,
+):
+    workspace = _loaded_workspace(
+        [
+            _chat("visible"),
+            _chat("app", meta={"pawapp": {"app_id": "notes"}}),
+            _chat("cron", source=SessionSource.cron),
+            _chat("sub", source=SessionSource.subagent),
+            _chat("peer", session_id="other:to:default:1:abc"),
+        ],
+    )
+
+    response = _get_session_activity(
+        client,
+        manager_mock,
+        _activity_config(_ref("default")),
+        {"default": workspace},
+    )
+
+    assert response.status_code == 200
+    sessions = response.json()["agents"][0]["sessions"]
+    # App-owned chats are not in the main list; the rest are listed so the
+    # console baselines them, but only plain chats color the agent.
+    assert [(item["id"], item["counted"]) for item in sessions] == [
+        ("visible", True),
+        ("cron", False),
+        ("sub", False),
+        ("peer", False),
+    ]
+    workspace.chat_manager.list_chats.assert_awaited_once_with(
+        archived=False,
+    )
+
+
+def test_session_activity_route_is_not_an_agent_id(client, manager_mock):
+    with patch(
+        "qwenpaw.app.routers.agents.load_agent_config",
+    ) as load_agent:
+        response = _get_session_activity(
+            client,
+            manager_mock,
+            _activity_config(_ref("default")),
+            {},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"agents": []}
+    load_agent.assert_not_called()
+
+
+def test_session_activity_skips_failing_agent(client, manager_mock):
+    broken = _loaded_workspace([])
+    broken.chat_manager.list_chats.side_effect = RuntimeError("repo broken")
+
+    with patch.object(agents_module, "logger") as logger:
+        response = _get_session_activity(
+            client,
+            manager_mock,
+            _activity_config(_ref("default"), _ref("bot")),
+            {"default": broken, "bot": _loaded_workspace([_chat("ok")])},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["agents"] == [
+        {
+            "agent_id": "bot",
+            "sessions": [
+                {
+                    "id": "ok",
+                    "status": "idle",
+                    "counted": True,
+                    "last_finished_at": None,
+                },
+            ],
+        },
+    ]
+    logger.warning.assert_called_once()
+    assert "default" in logger.warning.call_args.args
+
+
+async def test_session_activity_without_request_returns_no_agents():
+    result = await list_agent_session_activity()
+
+    assert result.agents == []
 
 
 # ---------------------------------------------------------------------------

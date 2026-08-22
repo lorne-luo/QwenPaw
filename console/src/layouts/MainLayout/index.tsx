@@ -8,6 +8,7 @@ import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { SessionListPollingController } from "../../components/SessionListPollingController";
+import { SessionAttentionController } from "../../components/SessionAttentionController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
@@ -141,6 +142,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
               onOpenNotification={navigate}
             />
             <AgentStatusPollingController />
+            <SessionAttentionController />
             <Slot name="content.statusBar" kind="fill" />
             <div className="page-content">
               <ChunkErrorBoundary

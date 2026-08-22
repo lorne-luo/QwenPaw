@@ -141,6 +141,7 @@ import {
 } from "./sdkRequestSnapshot";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
+import { useStreamRevive } from "./hooks/useStreamRevive";
 import {
   createHeadlineFilterState,
   filterHeadlineDelta,
@@ -1129,7 +1130,18 @@ function useMessageHistoryNavigation(
 // Chat input draft persistence
 // ---------------------------------------------------------------------------
 
-function useChatInputDraft(active: boolean, agentId?: string) {
+/**
+ * Persist the composer draft.
+ *
+ * `remountKey` re-runs the restore pass after the runtime is remounted (a
+ * wake-up reload swaps in a fresh, empty textarea), so a draft typed before
+ * the screen went off is still there afterwards.
+ */
+function useChatInputDraft(
+  active: boolean,
+  agentId?: string,
+  remountKey?: number,
+) {
   const storageKey = getDraftStorageKey(agentId);
 
   useEffect(() => {
@@ -1195,16 +1207,26 @@ function useChatInputDraft(active: boolean, agentId?: string) {
       }
     }, 100);
 
+    // A frozen tab may never run the cleanup below, and the wake-up reload
+    // replaces the textarea, so the draft is captured the moment it hides.
+    const handleHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      const textarea = getTextarea();
+      if (textarea?.value) saveDraft(textarea);
+    };
+
     document.addEventListener("input", handleInput, true);
+    document.addEventListener("visibilitychange", handleHide);
 
     return () => {
       clearInterval(restoreInterval);
       document.removeEventListener("input", handleInput, true);
+      document.removeEventListener("visibilitychange", handleHide);
 
       // Input events already saved the draft. Cleanup must not overwrite it
       // with a cleared/remounted composer (including another browser tab).
     };
-  }, [active, storageKey]);
+  }, [active, storageKey, remountKey]);
 }
 
 function RuntimeLoadingBridge({
@@ -1968,6 +1990,9 @@ export default function ChatPage() {
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
+  /** Timestamp of the last SSE chunk, used to spot a stream the browser
+   *  killed while the tab was frozen (mobile screen-off). */
+  const lastStreamEventAtRef = useRef(0);
   const prevChatLoadingRef = useRef<boolean | string>(false);
   const pendingHandoffRefreshRef = useRef<string | null>(null);
   useEffect(() => {
@@ -2353,6 +2378,21 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
 
+  const reviveStream = useCallback(() => {
+    // Clearing lastSessionIdRef restores the first-load condition, so the
+    // runtime's mount-time "select the newest session" is suppressed by
+    // onSessionSelected and ChatSessionInitializer re-applies the chat in
+    // the URL. Without it a reload navigates away from the chat the user
+    // is looking at — the same guard the agent switch relies on.
+    lastSessionIdRef.current = null;
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+  useStreamRevive({
+    streaming: Boolean(chatLoading),
+    lastEventAtRef: lastStreamEventAtRef,
+    revive: reviveStream,
+  });
+
   useEffect(() => {
     const handler = () => {
       void fetchMultimodalCaps();
@@ -2391,7 +2431,7 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
-  useChatInputDraft(isChatActiveRef.current, selectedAgent);
+  useChatInputDraft(isChatActiveRef.current, selectedAgent, refreshKey);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -4212,6 +4252,7 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          lastStreamEventAtRef.current = Date.now();
           // CoPaw's wire enum uses "cancelled"; the SDK uses "canceled".
           // Preserve cancellation instead of fabricating a completed, empty
           // assistant reply, including unfinished tool/content statuses.

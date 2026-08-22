@@ -11,6 +11,7 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ..constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ..runtime._state_utils import StateProxy
 from ..schemas import AgentResponse, Message, MessageType
 from .events import HarnessHistoryItem, HarnessHistoryKind
@@ -132,12 +133,22 @@ class HarnessSessionBridge:
             blocks = cls._content_blocks(getattr(item, "content", None))
             if not blocks:
                 continue
+            # The console confirms a sent message by finding this id in its
+            # history; without it the message is shown a second time.
+            client_id = (getattr(item, "metadata", None) or {}).get(
+                QWENPAW_CLIENT_MESSAGE_ID_KEY,
+            )
             messages.append(
                 cls._msg_dump(
                     name=role,
                     role=role,
                     content=blocks,
                     backend=backend,
+                    extra=(
+                        {QWENPAW_CLIENT_MESSAGE_ID_KEY: client_id}
+                        if client_id
+                        else None
+                    ),
                 ),
             )
         return messages

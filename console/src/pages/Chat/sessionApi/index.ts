@@ -259,6 +259,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   terminal?: { status?: string; error?: unknown },
+  runStartTs = 0,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -296,7 +297,12 @@ const buildResponseCard = (
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
-          created_at: firstTs || fallbackNow,
+          // Every message in a persisted reply shares one timestamp (stamped
+          // when the turn finished), so the turn start comes from the user
+          // message that triggered it. A turn without output has no end to
+          // measure against, so it does not get one.
+          created_at:
+            (outputMessages.length ? runStartTs : 0) || firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: terminal?.error ?? null,
           completed_at: finishedAt || lastTs || fallbackNow,
@@ -335,12 +341,15 @@ const convertMessages = (
     const startIdx = i;
     while (i < len && messages[i].role !== ROLE_USER) i++;
     const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
+    const prev = startIdx > 0 ? messages[startIdx - 1] : null;
+    const runStartTs =
+      prev && prev.role === ROLE_USER ? parseTimestamp(prev) : 0;
     if (
       outputMsgs.length ||
       terminal?.status === "failed" ||
       terminal?.status === "canceled"
     ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+      result.push(buildResponseCard(outputMsgs, terminal, runStartTs));
     }
   }
 
@@ -593,6 +602,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     { session: IAgentScopeRuntimeWebUISession; owner: SessionOwnerToken }
   > = new Map();
 
+  /** Per-session epoch that prevents superseded fetches from applying late. */
+  private sessionFetchGenerations = new Map<string, number>();
+
   // ---------------------------------------------------------------------------
   // LRU cache for fully-converted sessions (avoids re-fetching on switch-back)
   // ---------------------------------------------------------------------------
@@ -653,9 +665,37 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     });
   }
 
-  /** Invalidate the converted cache for a session (call after sending a message). */
+  /** Invalidate every short-lived snapshot for a session before re-fetching. */
   invalidateConvertedCache(backendId: string): void {
+    this.bumpSessionFetchGeneration(backendId);
     this.convertedSessionCache.delete(backendId);
+    const resultEntry = this.sessionResultCache.get(backendId);
+    if (resultEntry) {
+      for (const [key, entry] of this.sessionResultCache) {
+        if (entry === resultEntry) this.sessionResultCache.delete(key);
+      }
+    }
+  }
+
+  private getSessionFetchGeneration(sessionId: string): number {
+    return this.sessionFetchGenerations.get(sessionId) ?? 0;
+  }
+
+  private bumpSessionFetchGeneration(sessionId: string): number {
+    const generation = this.getSessionFetchGeneration(sessionId) + 1;
+    this.sessionFetchGenerations.set(sessionId, generation);
+    return generation;
+  }
+
+  private isCurrentSessionFetch(
+    sessionId: string,
+    generation: number,
+    owner: SessionOwnerToken,
+  ): boolean {
+    return (
+      this.isActiveOwner(owner) &&
+      this.getSessionFetchGeneration(sessionId) === generation
+    );
   }
 
   /**
@@ -666,20 +706,36 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   async preloadSession(
     sessionId: string,
     signal?: AbortSignal,
+    forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<{
     session: IAgentScopeRuntimeWebUISession;
     realId: string | null;
   }> {
     const owner = this.getActiveOwner();
+    const fetchGeneration = forceFresh
+      ? this.bumpSessionFetchGeneration(sessionId)
+      : this.getSessionFetchGeneration(sessionId);
     try {
-      const session = await this.getSession(sessionId, signal);
+      const session = forceFresh
+        ? await this._doGetSession(
+            sessionId,
+            signal,
+            owner,
+            fetchGeneration,
+            true,
+            isCurrent,
+          )
+        : await this.getSession(sessionId, signal);
 
       // A preload must not navigate or repopulate an alias after its Agent
-      // or canonical Chat identity changes while history is loading.
+      // or canonical Chat identity changes while history is loading, and a
+      // completion superseded by a forced refetch must fail like an abort.
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
       if (
-        !this.isActiveOwner(owner) ||
+        !isCurrent() ||
+        !this.isCurrentSessionFetch(sessionId, fetchGeneration, owner) ||
         this.getEffectiveSessionId(sessionId) !== (realId ?? session.id)
       ) {
         throw new DOMException("Aborted", "AbortError");
@@ -713,7 +769,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // A stale completion must look like an abort on the error path too:
       // a plain network/backend rejection would otherwise be handled as a
       // failure of the CURRENT switch and select the old agent's session.
-      if (!this.isActiveOwner(owner)) {
+      if (!isCurrent() || !this.isActiveOwner(owner)) {
         throw new DOMException("Aborted", "AbortError");
       }
       // Don't reset switching state on abort — the new switch owns the lock
@@ -857,6 +913,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.sessionFetchGenerations.clear();
     // Reset the session list and its comparison state as well: the next
     // agent's chats can share a session_id (channel:user_id) with the old
     // list, and merging against leftover entries would transfer the previous
@@ -973,6 +1030,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.sessionFetchGenerations.clear();
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
@@ -1069,6 +1127,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     {
       promise: Promise<IAgentScopeRuntimeWebUISession>;
       owner: SessionOwnerToken;
+      generation: number;
     }
   > = new Map();
 
@@ -1174,14 +1233,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
+      let lastUserHasClientId = false;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
         lastUserText = extractTextFromContent(input?.content);
+        lastUserHasClientId = Boolean(extractClientMessageId(input?.metadata));
         break;
       }
+      // Fall back to text only when history carries no client ids (older
+      // or third-party turns). A different id means an identical message
+      // sent earlier, not this one.
       const persistenceConfirmed =
-        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
+        (!cached.clientMessageId || !lastUserHasClientId) &&
+        lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         pendingIds.forEach(clearPendingUserMessage);
         return false;
@@ -1221,8 +1286,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private createEmptySession(
     sessionId: string,
     owner: SessionOwnerToken,
+    applyView = true,
   ): ExtendedSession {
-    if (this.isActiveOwner(owner) && this.isVisibleSession(sessionId)) {
+    if (
+      applyView &&
+      this.isActiveOwner(owner) &&
+      this.isVisibleSession(sessionId)
+    ) {
       useTurnUsageStore.getState().setSnapshot(null);
     }
     return {
@@ -1570,11 +1640,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionResultCache.delete(sessionId);
     this.sessionResultCache.delete(backendId);
     this.invalidateConvertedCache(backendId);
-    return this._doGetSession(sessionId, signal, owner);
+    return this._doGetSession(
+      sessionId,
+      signal,
+      owner,
+      this.getSessionFetchGeneration(sessionId),
+    );
   }
 
   async getSession(sessionId: string, signal?: AbortSignal) {
     const owner = this.getActiveOwner();
+    const generation = this.getSessionFetchGeneration(sessionId);
 
     // Check short-lived result cache first (populated by preloadSession).
     // Entries must still belong to the same owner and canonical Chat.
@@ -1593,12 +1669,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // new agent never adopts a request (and its captured owner) started by a
     // previous agent.
     const existingRequest = this.sessionRequests.get(sessionId);
-    if (existingRequest && this.isActiveOwner(existingRequest.owner)) {
+    if (
+      existingRequest &&
+      existingRequest.generation === generation &&
+      this.isActiveOwner(existingRequest.owner)
+    ) {
       return existingRequest.promise;
     }
 
-    const requestPromise = this._doGetSession(sessionId, signal, owner);
-    const entry = { promise: requestPromise, owner };
+    const requestPromise = this._doGetSession(
+      sessionId,
+      signal,
+      owner,
+      generation,
+      false,
+    );
+    const entry = { promise: requestPromise, owner, generation };
     this.sessionRequests.set(sessionId, entry);
 
     try {
@@ -1616,7 +1702,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // active ownership epoch and neither the displayId nor the realId has
       // already been selected. The latter prevents the infinite loop where
       // displayId and realId alternate triggering onSessionSelected.
-      if (this.isActiveOwner(owner) && !this.lastSelectedIds.has(sessionId)) {
+      if (
+        this.isCurrentSessionFetch(sessionId, generation, owner) &&
+        !this.lastSelectedIds.has(sessionId)
+      ) {
         this.lastSelectedIds.clear();
         this.lastSelectedIds.add(sessionId);
         if (realId) this.lastSelectedIds.add(realId);
@@ -1645,10 +1734,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     listEntry: ExtendedSession | undefined,
     signal: AbortSignal | undefined,
     owner: SessionOwnerToken,
+    fetchGeneration: number,
+    forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<ExtendedSession> {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
-    if (isIdle) {
+    if (isIdle && !forceFresh) {
       const cached = this.getCachedConvertedSession(
         backendId,
         listEntry?.updatedAt,
@@ -1660,7 +1752,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         cached.realId =
           listEntry?.realId ??
           (backendId !== displayId ? backendId : cached.realId);
-        this.applySessionView(cached, owner);
+        if (
+          isCurrent() &&
+          this.isCurrentSessionFetch(displayId, fetchGeneration, owner)
+        ) {
+          this.applySessionView(cached, owner);
+        }
         return cached;
       }
     }
@@ -1683,14 +1780,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           .reconcileHistory(id, owner.agentId, chatHistory.messages || []);
       }
     }
+    const canApply =
+      isCurrent() &&
+      this.isCurrentSessionFetch(displayId, fetchGeneration, owner);
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
-    const patchedPending = this.patchLastUserMessage(messages, generating, [
-      backendId,
-      displayId,
-      listEntry?.id,
-      listEntry?.realId,
-    ]);
+    const patchedPending = canApply
+      ? this.patchLastUserMessage(messages, generating, [
+          backendId,
+          displayId,
+          listEntry?.id,
+          listEntry?.realId,
+        ])
+      : false;
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1710,7 +1812,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // A history patched with an unconfirmed pending message is NOT
     // canonical (the agent reply may still be missing): caching it would
     // keep serving the incomplete turn for the whole cache TTL.
-    if (!generating && !patchedPending && this.isActiveOwner(owner)) {
+    if (!generating && !patchedPending && canApply) {
       this.setCachedConvertedSession(
         backendId,
         session,
@@ -1718,7 +1820,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       );
     }
 
-    this.applySessionView(session, owner);
+    if (canApply) this.applySessionView(session, owner);
     return session;
   }
 
@@ -1726,10 +1828,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     signal: AbortSignal | undefined,
     owner: SessionOwnerToken,
+    fetchGeneration: number,
+    forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
-      if (this.isActiveOwner(owner)) {
+      if (isCurrent() && this.isActiveOwner(owner)) {
         useTurnUsageStore.getState().setSnapshot(null);
       }
       return {
@@ -1753,6 +1858,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           fromList,
           signal,
           owner,
+          fetchGeneration,
+          forceFresh,
+          isCurrent,
         );
       }
       // A triggerResolve may be in-flight (POST succeeded but getSessionList
@@ -1769,14 +1877,27 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             resolved,
             signal,
             owner,
+            fetchGeneration,
+            forceFresh,
+            isCurrent,
           );
         }
       }
       if (fromList) {
-        this.applySessionView(fromList, owner);
+        if (
+          isCurrent() &&
+          this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)
+        ) {
+          this.applySessionView(fromList, owner);
+        }
         return fromList;
       }
-      return this.createEmptySession(sessionId, owner);
+      return this.createEmptySession(
+        sessionId,
+        owner,
+        isCurrent() &&
+          this.isCurrentSessionFetch(sessionId, fetchGeneration, owner),
+      );
     }
 
     // --- Backend Chat UUID or an opaque runtime session_id alias ---
@@ -1790,6 +1911,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       listEntry,
       signal,
       owner,
+      fetchGeneration,
+      forceFresh,
+      isCurrent,
     );
   }
 

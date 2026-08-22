@@ -134,7 +134,7 @@ test = [
     "hypothesis>=6.0.0",
     "respx>=0.22.0",
     "qoder-agent-sdk==1.0.9",
-    "claude-agent-sdk==0.2.139",
+    "claude-agent-sdk==0.2.163",
 ]
 dev = [
     "pre-commit>=4.2.0",
@@ -204,7 +204,7 @@ channels = [
     "wecom-aibot-python-sdk==1.0.2",
 ]
 claude = [
-    "claude-agent-sdk==0.2.139",
+    "claude-agent-sdk==0.2.163",
 ]
 full = [
     "qwenpaw[channels]",

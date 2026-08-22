@@ -169,6 +169,7 @@ class HarnessRuntime:
         error_text = ""
         cancelled = False
         task_cancelled = False
+        event_stream = None
 
         try:
             if command in {"new", "clear"}:
@@ -240,6 +241,12 @@ class HarnessRuntime:
             task_cancelled = True
         except Exception as exc:
             error_text = str(exc)
+        finally:
+            # Closing while yielding an envelope must also close the adapter
+            # generator, which may still own an unfinished provider turn.
+            close = getattr(event_stream, "aclose", None)
+            if close is not None:
+                await close()
 
         for item in text_stream.finish():
             yield tagged(item)

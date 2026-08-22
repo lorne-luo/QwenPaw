@@ -202,10 +202,18 @@ export function parseDraft(raw: string | null): DraftState | null {
   }
 }
 
+/**
+ * Persist the composer draft.
+ *
+ * `remountKey` re-runs the restore pass after the runtime is remounted (a
+ * wake-up reload swaps in a fresh, empty textarea), so a draft typed before
+ * the screen went off is still there afterwards.
+ */
 export function useChatInputDraft(
   active: boolean,
   agentId?: string,
   sessionId?: string,
+  remountKey?: number,
 ) {
   const blank = isBlankDraftSession(sessionId);
   const [, bumpPendingComposer] = useState(0);
@@ -314,12 +322,22 @@ export function useChatInputDraft(
       }
     }, 100);
 
+    // A frozen tab may never run the cleanup below, and the wake-up reload
+    // replaces the textarea, so the draft is captured the moment it hides.
+    const handleHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      const textarea = getTextarea();
+      if (textarea?.value) saveDraft(textarea);
+    };
+    document.addEventListener("visibilitychange", handleHide);
+
     return () => {
       clearInterval(restoreInterval);
       document.removeEventListener("input", handleInput, true);
+      document.removeEventListener("visibilitychange", handleHide);
 
       // Input events already saved the draft. Cleanup must not overwrite it
       // with a cleared/remounted composer (including another browser tab).
     };
-  }, [active, agentId, storageKey]);
+  }, [active, agentId, storageKey, remountKey]);
 }

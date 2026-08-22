@@ -8,6 +8,7 @@ from agentscope.state import AgentState
 
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.utils import agentscope_msg_to_message
+from qwenpaw.constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from qwenpaw.harnesses.session import HarnessSessionBridge
 from qwenpaw.schemas import (
     AgentRequest,
@@ -169,3 +170,48 @@ async def test_bridge_persists_attachment_only_message(
     assert Path(restored[0].content[1].file_url) == file_path
     assert Path(restored[0].content[2].data) == audio_path
     assert Path(restored[0].content[3].video_url) == video_path
+
+
+@pytest.mark.asyncio
+async def test_bridge_keeps_console_client_message_id(
+    tmp_path: Path,
+) -> None:
+    session = SafeJSONSession(str(tmp_path))
+    bridge = HarnessSessionBridge(session)
+    request = AgentRequest(
+        session_id="chat-1",
+        user_id="user-1",
+        channel="console",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="Fix it")],
+                metadata={QWENPAW_CLIENT_MESSAGE_ID_KEY: "client-1"},
+            ),
+        ],
+    )
+    response = AgentResponse(
+        id="response-1",
+        output=[],
+        status=RunStatus.Completed,
+    )
+
+    await bridge.append_turn(
+        request=request,
+        response=response,
+        backend="codex",
+    )
+
+    persisted = await session.get_session_state_dict(
+        "chat-1",
+        "user-1",
+        "console",
+    )
+    state = AgentState.model_validate(persisted["agent"]["state"])
+    restored = agentscope_msg_to_message(list(state.context))
+
+    # The console confirms a sent message by this id in its history.
+    assert restored[0].metadata["metadata"] == {
+        "third_party_backend": "codex",
+        QWENPAW_CLIENT_MESSAGE_ID_KEY: "client-1",
+    }

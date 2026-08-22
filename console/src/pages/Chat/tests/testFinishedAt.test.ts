@@ -90,4 +90,15 @@ describe("buildResponseCard completed_at (issue #6826)", () => {
     const data = cardData(buildResponseCard(msgs as never));
     expect(data.completed_at).toBe(Math.floor(new Date(late).getTime() / 1000));
   });
+
+  it("does not time a failed turn with no output from the user message", () => {
+    // History renders a card for a failed / canceled turn even without output;
+    // starting its timer at the user message would show "now - sent" as the
+    // reply duration.
+    const sent = Math.floor(
+      new Date("2026-08-12T17:00:00+08:00").getTime() / 1000,
+    );
+    const data = cardData(buildResponseCard([], { status: "failed" }, sent));
+    expect(data.completed_at).toBe(data.created_at);
+  });
 });

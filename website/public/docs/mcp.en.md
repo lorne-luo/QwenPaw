@@ -182,6 +182,10 @@ tools, and security details.
 
 ---
 
+### Claude Code tool permissions
+
+The Claude Code backend enforces tool allowlists and policies for MCP servers managed by QwenPaw, including in full access mode. An empty allowlist disables the server; tools outside a configured allowlist are denied. Tools with an `ask` policy require approval, and an approval error or timeout denies the call.
+
 ### Advanced Options
 
 #### Transport Types

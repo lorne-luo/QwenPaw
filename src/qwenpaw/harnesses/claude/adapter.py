@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import mimetypes
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -16,6 +17,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ClaudeSDKError,
+    HookMatcher,
     PermissionResultAllow,
     PermissionResultDeny,
     ProcessError,
@@ -27,6 +29,7 @@ from ...app.approvals import (
     ApprovalRequestSummary,
     get_approval_service,
 )
+from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision
 from ...utils.io_utils import (
     read_bytes_async,
@@ -56,10 +59,14 @@ from .models import (
     from_server_info,
 )
 from .projection import (
+    cli_server_name,
     materialize_skill_plugin,
     mcp_servers,
     tool_policies,
 )
+from .session_reader import SessionReader
+
+logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT_SECONDS = 30
 _STATUS_TIMEOUT_SECONDS = 10
@@ -108,6 +115,7 @@ class ClaudeAdapter(HarnessAdapter):
         self._sessions = self._load_sessions()
         self._pending: dict[str, str] = {}
         self._clients: dict[str, Any] = {}
+        self._readers: dict[str, SessionReader] = {}
         self._client_keys: dict[str, tuple[Any, ...]] = {}
         self._contexts: dict[str, dict[str, Any]] = {}
         self._session_lock = asyncio.Lock()
@@ -229,24 +237,51 @@ class ClaudeAdapter(HarnessAdapter):
             cwd,
             settings,
         )
-        if was_reset:
-            yield HarnessEvent(
-                kind=HarnessEventKind.TEXT_DELTA,
-                text=_RESET_NOTICE,
-            )
         mapper = ClaudeEventMapper()
         try:
+            if was_reset:
+                yield HarnessEvent(
+                    kind=HarnessEventKind.TEXT_DELTA,
+                    text=_RESET_NOTICE,
+                )
             query_input: str | AsyncIterator[dict[str, Any]] = prompt
             if attachments:
                 query_input = self._attachment_input(prompt, cwd, attachments)
+            messages = self._readers[session_id].start_turn()
             await client.query(query_input)
-            async for message in client.receive_response():
+            async for message in messages:
                 await self._commit_session(session_id)
                 for event in mapper.convert(message):
                     yield event
-        except asyncio.CancelledError:
-            await asyncio.shield(client.interrupt())
+        except (asyncio.CancelledError, GeneratorExit):
+            # Interrupt leaves a terminal result in the SDK receive queue.
+            # Evict synchronously so no later turn can consume that result.
+            reader = None
+            if self._clients.get(session_id) is client:
+                self._clients.pop(session_id, None)
+                reader = self._readers.pop(session_id, None)
+                self._client_keys.pop(session_id, None)
+                self._pending.pop(session_id, None)
+            await asyncio.shield(self._close_cancelled_client(client, reader))
             raise
+
+    @staticmethod
+    async def _close_cancelled_client(
+        client: Any,
+        reader: SessionReader | None,
+    ) -> None:
+        """Best-effort cleanup must not replace the caller's cancellation."""
+        operations = [client.interrupt, client.disconnect]
+        if reader is not None:
+            operations.append(reader.close)
+        for operation in operations:
+            try:
+                async with asyncio.timeout(_CONNECT_TIMEOUT_SECONDS):
+                    await operation()
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Claude cancellation cleanup failed", exc_info=True,
+                )
 
     async def _commit_session(self, session_id: str) -> None:
         """Persist the Claude session id once the CLI has answered.
@@ -334,23 +369,33 @@ class ClaudeAdapter(HarnessAdapter):
         """
         async with self._session_lock:
             client = self._clients.pop(session_id, None)
+            reader = self._readers.pop(session_id, None)
             self._client_keys.pop(session_id, None)
             self._contexts.pop(session_id, None)
             self._sessions.pop(session_id, None)
             self._pending.pop(session_id, None)
-            if client is not None:
-                await client.disconnect()
-            await write_json_atomic_async(
-                self._session_path,
-                self._sessions,
-            )
+            try:
+                if client is not None:
+                    await client.disconnect()
+                if reader is not None:
+                    await reader.close()
+            finally:
+                # A failed disconnect must not leave the mapping on disk, or
+                # the dropped conversation resumes after a restart.
+                await write_json_atomic_async(
+                    self._session_path,
+                    self._sessions,
+                )
 
     async def stop(self) -> None:
         """Disconnect every SDK client owned by this adapter."""
         async with self._session_lock:
             for client in tuple(self._clients.values()):
                 await client.disconnect()
+            for reader in tuple(self._readers.values()):
+                await reader.close()
             self._clients.clear()
+            self._readers.clear()
             self._client_keys.clear()
             self._pending.clear()
 
@@ -362,8 +407,8 @@ class ClaudeAdapter(HarnessAdapter):
     ) -> tuple[Any, bool]:
         """Return a connected client, and whether its thread was restarted."""
         key = self._client_key(cwd, settings)
-        existing = self._clients.get(session_id)
-        if existing is not None and self._client_keys.get(session_id) == key:
+        existing = self._reusable_client(session_id, key)
+        if existing is not None:
             return existing, False
         capabilities = settings.get("_runtime_capabilities")
         if not isinstance(capabilities, HarnessRuntimeCapabilities):
@@ -374,14 +419,15 @@ class ClaudeAdapter(HarnessAdapter):
             capabilities,
         )
         async with self._session_lock:
-            existing = self._clients.get(session_id)
-            if (
-                existing is not None
-                and self._client_keys.get(session_id) == key
-            ):
-                return existing, False
+            existing = self._reusable_client(session_id, key)
             if existing is not None:
-                await existing.disconnect()
+                return existing, False
+            stale = self._clients.pop(session_id, None)
+            stale_reader = self._readers.pop(session_id, None)
+            if stale is not None:
+                await stale.disconnect()
+            if stale_reader is not None:
+                await stale_reader.close()
             resumable = self._sessions.get(session_id)
             is_resume = bool(resumable)
             claude_session_id = (
@@ -420,8 +466,26 @@ class ClaudeAdapter(HarnessAdapter):
             if not is_resume or was_reset:
                 self._pending[session_id] = claude_session_id
             self._clients[session_id] = client
+            self._readers[session_id] = SessionReader(client)
             self._client_keys[session_id] = key
             return client, was_reset
+
+    def _reusable_client(
+        self,
+        session_id: str,
+        key: tuple[Any, ...],
+    ) -> Any | None:
+        """Return the session's client if its settings match and it is live."""
+        client = self._clients.get(session_id)
+        reader = self._readers.get(session_id)
+        if (
+            client is None
+            or reader is None
+            or reader.closed
+            or self._client_keys.get(session_id) != key
+        ):
+            return None
+        return client
 
     async def _connect(
         self,
@@ -463,7 +527,9 @@ class ClaudeAdapter(HarnessAdapter):
         if not isinstance(capabilities, HarnessRuntimeCapabilities):
             capabilities = HarnessRuntimeCapabilities()
         allowed_tools, disallowed_tools = tool_policies(capabilities)
-        extra_args: dict[str, str | None] = {}
+        # The echoed prompt tells SessionReader whether the CLI folded a
+        # prompt into a turn that was already under way.
+        extra_args: dict[str, str | None] = {"replay-user-messages": None}
         if effort in _EFFORT_LEVELS:
             extra_args["effort"] = str(effort)
         if permission_mode == "bypassPermissions":
@@ -487,6 +553,23 @@ class ClaudeAdapter(HarnessAdapter):
                     context,
                 )
             ),
+            hooks={
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[
+                            lambda data, tool_use_id, context: (
+                                self._gate_mcp_tool(
+                                    session_id,
+                                    capabilities,
+                                    data,
+                                    tool_use_id,
+                                )
+                            ),
+                        ],
+                        timeout=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS + 30,
+                    ),
+                ],
+            },
             allowed_tools=allowed_tools,
             disallowed_tools=disallowed_tools,
             mcp_servers=mcp_servers(capabilities),
@@ -499,6 +582,61 @@ class ClaudeAdapter(HarnessAdapter):
             ),
             skills="all",
         )
+
+    async def _gate_mcp_tool(
+        self,
+        session_id: str,
+        capabilities: HarnessRuntimeCapabilities,
+        data: dict[str, Any],
+        tool_use_id: str | None,
+    ) -> dict[str, Any]:
+        """Enforce managed MCP policy even in bypassPermissions mode.
+
+        PreToolUse runs before permission evaluation. Resolve ask here and
+        return allow/deny so full access cannot skip, or duplicate, approval.
+        """
+        tool_name = str(data.get("tool_name") or "")
+        for server in sorted(
+            capabilities.mcp_servers,
+            key=lambda item: len(item.name),
+            reverse=True,
+        ):
+            prefix = f"mcp__{cli_server_name(server.name)}__"
+            if not tool_name.startswith(prefix):
+                continue
+            name = tool_name[len(prefix):]
+            effect = server.tool_policies.get(name, server.default_policy)
+            if server.tools is not None and name not in server.tools:
+                effect = "deny"
+            if effect == "ask":
+                try:
+                    # Return an explicit deny before the CLI hook timeout;
+                    # hook errors alone are not a fail-closed policy gate.
+                    async with asyncio.timeout(
+                        TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+                    ):
+                        approval = await self._approve_tool(
+                            session_id,
+                            tool_name,
+                            data.get("tool_input") or {},
+                            ToolPermissionContext(tool_use_id=tool_use_id),
+                        )
+                    effect = approval.behavior
+                except Exception:  # pylint: disable=broad-except
+                    # CancelledError deliberately propagates to turn cleanup.
+                    logger.warning(
+                        "Claude MCP approval failed; denying tool call",
+                        exc_info=True,
+                    )
+                    effect = "deny"
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": effect,
+                    "permissionDecisionReason": "QwenPaw MCP tool policy",
+                },
+            }
+        return {}
 
     async def _approve_tool(
         self,

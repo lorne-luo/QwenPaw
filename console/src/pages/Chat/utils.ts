@@ -113,6 +113,32 @@ export function formatMessageTime(ts: number): string {
   return `${date.getFullYear()}-${month}-${day} ${time}`;
 }
 
+/**
+ * Format the time between two timestamps as HH:mm:ss. Accepts unix
+ * timestamps (seconds or milliseconds) or ISO 8601 strings, since the
+ * backend sends response.created_at/completed_at as ISO strings.
+ */
+export function formatDuration(
+  startTs: number | string,
+  endTs: number | string,
+): string {
+  if (!startTs || !endTs) return "";
+  const toMs = (ts: number | string) =>
+    typeof ts === "string" ? new Date(ts).getTime() : ts < 1e12 ? ts * 1000 : ts;
+  const startMs = toMs(startTs);
+  const endMs = toMs(endTs);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return "";
+  const totalSeconds = Math.max(0, Math.round((endMs - startMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600)
+    .toString()
+    .padStart(2, "0");
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 // ---------------------------------------------------------------------------
 // Error response utilities
 // ---------------------------------------------------------------------------

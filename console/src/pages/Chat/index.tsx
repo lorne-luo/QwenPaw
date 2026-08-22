@@ -40,6 +40,7 @@ import {
   Copy,
   Paperclip as SparkAttachmentLine,
   Settings as SettingOutlined,
+  Send as SparkSendLine,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
@@ -149,6 +150,14 @@ import {
 } from "./sdkRequestSnapshot";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
+import { useStreamRevive } from "./hooks/useStreamRevive";
+import { useLoadingWatchdog } from "./hooks/useLoadingWatchdog";
+import {
+  isReviveUnchanged,
+  isRevivedViewReady,
+  prepareSessionRevive,
+} from "./sessionRevive";
+import { holdView } from "./reviveFreezeFrame";
 import {
   createHeadlineFilterState,
   filterHeadlineDelta,
@@ -253,6 +262,7 @@ import {
   getSenderTextareaFromTarget,
   setTextareaValue,
   formatMessageTime,
+  formatDuration,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
@@ -301,6 +311,39 @@ import {
 // Supports multiple concurrent sessions: each session has its own controller.
 // The controller registry lives in backgroundQueueRegistry (unit-tested).
 // ---------------------------------------------------------------------------
+
+/**
+ * One-shot backend status probe: true when the chat is not generating, false
+ * while it still is, null when the request was aborted or the backend could
+ * not be reached (caller should bail and probe again later).
+ *
+ * A 4xx answer counts as idle so a caller never blocks forever on an id the
+ * backend does not know (e.g. one that is still a local timestamp).
+ *
+ * @param agentId - Overrides X-Agent-Id so switching agents does not cause a
+ *   cross-agent status misread.
+ */
+async function fetchChatIsIdle(
+  chatIdForStatus: string,
+  signal: AbortSignal,
+  agentId?: string,
+): Promise<boolean | null> {
+  if (!chatIdForStatus) return true;
+  try {
+    const chat = await chatApi.getChatStatus(chatIdForStatus, {
+      signal,
+      agentId,
+    });
+    return chat.status !== "running";
+  } catch (error) {
+    if (signal.aborted) return null;
+    // The backend answered and refused the id: nothing can still be running.
+    if (error instanceof ApiError && error.status < 500) return true;
+    // An unreachable backend is not evidence the run ended: reviving on a
+    // network blip would remount a turn that is still streaming. Retry later.
+    return null;
+  }
+}
 
 /**
  * Convert a queue item's attachments array into the content-item format
@@ -1473,6 +1516,8 @@ export default function ChatPage() {
     setRefreshKey((version) => version + 1);
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  // The mounted runtime replaced a held copy of the conversation (revive).
+  const [runtimeRevived, setRuntimeRevived] = useState(false);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
@@ -1494,13 +1539,20 @@ export default function ChatPage() {
     const controller = new AbortController();
     queueExecutionScopeRef.current = controller;
     return () => controller.abort();
-  }, [queueSessionId, selectedAgent, queueKey]);
+    // refreshKey: a remount disconnects the SDK Run, so the old scope's send
+    // lock must not keep waiting for an acceptance that never settles.
+  }, [queueSessionId, selectedAgent, queueKey, refreshKey]);
   const messageQueue =
     useMessageQueueStore((s) => s.queues[queueKey]) ?? EMPTY_QUEUE;
   const messageQueueRef = useRef(messageQueue);
   messageQueueRef.current = messageQueue;
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
+  /** Set from a composer submit until its admission settles. Repeat clicks in
+   *  that window are dropped and the send button is greyed out, so a slow
+   *  status check cannot turn one message into several. */
+  const submitInFlightRef = useRef(false);
+  const [submitInFlight, setSubmitInFlight] = useState(false);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
   const backendControlsRef = useRef<Record<string, unknown>>({});
@@ -1592,16 +1644,19 @@ export default function ChatPage() {
           : undefined);
       const userId = item.userId || DEFAULT_USER_ID;
       const channel = item.channel || DEFAULT_CHANNEL;
+      // Backend Chat whose history holds this queue's receipts, if it exists.
+      const historyChatId =
+        queueSessionId !== "new" &&
+        !sessionApi.isUnresolvedLocalSession(queueSessionId)
+          ? sessionApi.getRealIdForSession(queueSessionId) || queueSessionId
+          : undefined;
 
       try {
         // SDK loading is local connection state. Stop/disconnect can clear it
         // while the backend is still producing the previous turn.
-        if (
-          queueSessionId !== "new" &&
-          !sessionApi.isUnresolvedLocalSession(queueSessionId)
-        ) {
+        if (historyChatId) {
           const idle = await waitForChatIdle(
-            sessionApi.getRealIdForSession(queueSessionId) || queueSessionId,
+            historyChatId,
             signal,
             agentId,
             queueKey,
@@ -1669,14 +1724,35 @@ export default function ChatPage() {
           signal,
         );
 
-        const currentQueueId = locateQueue();
         if (accepted.accepted) {
-          if (currentQueueId) {
-            useMessageQueueStore.getState().remove(currentQueueId, item.id);
+          const acceptedQueueId = locateQueue();
+          if (acceptedQueueId) {
+            useMessageQueueStore.getState().remove(acceptedQueueId, item.id);
           }
           return true;
         }
 
+        // The request left the browser, but its response never confirmed it:
+        // the backend may still have stored this turn. Only its history can
+        // tell, so keep the item `sending` while polling, which removes it if
+        // the receipt for this client message id is present. A missing receipt
+        // leaves it a retryable failure rather than a silent resend.
+        if (accepted.backendAcceptance === "unknown" && historyChatId) {
+          try {
+            const idle = await waitForChatIdle(
+              historyChatId,
+              signal,
+              agentId,
+              queueKey,
+            );
+            if (!idle) return false;
+          } catch {
+            if (signal.aborted) return false;
+          }
+          if (!locateQueue()) return true;
+        }
+
+        const currentQueueId = locateQueue();
         if (currentQueueId) {
           useMessageQueueStore
             .getState()
@@ -1956,6 +2032,9 @@ export default function ChatPage() {
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
+  /** Timestamp of the last SSE chunk, used to spot a stream the browser
+   *  killed while the tab was frozen (mobile screen-off). */
+  const lastStreamEventAtRef = useRef(0);
   const prevChatLoadingRef = useRef<boolean | string>(false);
   const pendingHandoffRefreshRef = useRef<string | null>(null);
   useEffect(() => {
@@ -2342,6 +2421,98 @@ export default function ChatPage() {
   const navigateRef = useRef(navigate);
   const locationRef = useRef(location);
   locationRef.current = location;
+  const reviveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const reviveFreezeHostRef = useRef<HTMLDivElement>(null);
+  const holdReleaseRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => holdReleaseRef.current?.(), []);
+
+  const reviveStream = useCallback(() => {
+    if (reviveInFlightRef.current) return;
+    const sessionId = chatIdRef.current;
+    if (!sessionId) return;
+    const agentId = selectedAgentRef.current;
+    const isCurrent = () =>
+      chatIdRef.current === sessionId && selectedAgentRef.current === agentId;
+    const task = prepareSessionRevive({
+      sessionId,
+      invalidate: (id) => sessionApi.invalidateConvertedCache(id),
+      preload: (id) =>
+        sessionApi.preloadSession(id, undefined, true, isCurrent),
+      isCurrent,
+      // Nothing changed while away: keep scroll, expanded tool calls and the
+      // composer. Live turns have no persisted identity, so they remount.
+      isUnchanged: ({ session }) =>
+        isReviveUnchanged({
+          streaming: Boolean(chatLoadingRef.current),
+          shown: chatRef.current?.messages.getMessages() ?? [],
+          fresh: session,
+        }),
+      remount: ({ session }) => {
+        // Keep the conversation on screen until the new runtime has painted
+        // its history; a fresh runtime starts empty and re-lists sessions.
+        holdReleaseRef.current?.();
+        const host = reviveFreezeHostRef.current;
+        if (host?.parentElement && (session.messages?.length ?? 0) > 0) {
+          const previous = chatRef.current;
+          holdReleaseRef.current = holdView({
+            host,
+            sources: Array.from(host.parentElement.children).filter(
+              (el): el is HTMLElement =>
+                el !== host && el instanceof HTMLElement,
+            ),
+            isReady: () => {
+              const handle = chatRef.current;
+              return (
+                !!handle &&
+                handle !== previous &&
+                isRevivedViewReady(
+                  handle.messages.getMessages(),
+                  Boolean(session.generating),
+                )
+              );
+            },
+          });
+        }
+        // Clearing lastSessionIdRef restores the first-load condition, so
+        // the runtime cannot navigate to its newest session during remount.
+        lastSessionIdRef.current = null;
+        setRuntimeRevived(true);
+        setRefreshKey((prev) => prev + 1);
+      },
+    });
+    reviveInFlightRef.current = task;
+    void task.finally(() => {
+      if (reviveInFlightRef.current === task) {
+        reviveInFlightRef.current = null;
+      }
+    });
+  }, []);
+  useStreamRevive({
+    streaming: Boolean(chatLoading),
+    mobile: isMobile,
+    lastEventAtRef: lastStreamEventAtRef,
+    revive: reviveStream,
+  });
+
+  // Chat id the watchdog may ask the backend about. A local timestamp id is not
+  // a real session yet, and the backend would 404 it — which the probe reads as
+  // "idle" and would use to clear loading on a first message that is still
+  // being sent. So those are excluded outright.
+  const watchdogChatId = useMemo(() => {
+    const raw = chatId ?? "";
+    if (!raw) return "";
+    const resolved = sessionApi.getRealIdForSession(raw) ?? raw;
+    return isLocalTimestampId(resolved) ? "" : resolved;
+  }, [chatId]);
+
+  useLoadingWatchdog({
+    loading: Boolean(chatLoading),
+    chatId: watchdogChatId,
+    agentId: selectedAgent,
+    lastEventAtRef: lastStreamEventAtRef,
+    isChatIdle: fetchChatIsIdle,
+    onStuck: reviveStream,
+  });
 
   useEffect(() => {
     const handler = () => {
@@ -2381,7 +2552,12 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
-  useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
+  useChatInputDraft(
+    isChatActiveRef.current,
+    selectedAgent,
+    routeChatId,
+    refreshKey,
+  );
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2493,36 +2669,22 @@ export default function ChatPage() {
     t,
   ]);
 
-  // Intercept Enter to enqueue:
-  //  - Ctrl/Meta+Enter: always enqueue (even when idle)
-  //  - Plain Enter while loading: enqueue (SDK blocks triggerSend when loading)
-  //  - Plain Enter while the queue subsystem is otherwise busy (queue not
-  //    empty / auto-send timer pending / an item is currently being sent):
-  //    enqueue, so we don't slip into a direct SDK send during the brief
-  //    idle window between two queued items.
-  useEffect(() => {
-    const handleEnterEnqueue = (e: KeyboardEvent) => {
-      if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
-      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isSessionTransition)
-        return;
-      const hasCtrl = e.ctrlKey || e.metaKey;
-      const queueBusy =
-        messageQueueRef.current.length > 0 || autoSendTimerRef.current !== null;
-      if (!hasCtrl && !chatLoadingRef.current && !queueBusy) return;
-      if (!hasCtrl && e.altKey) return;
-      if (isComposingRef.current || e.isComposing) return;
-      const textarea = hasCtrl
-        ? getActiveSenderTextarea()
-        : getSenderTextareaFromTarget(e.target);
-      if (!textarea) return;
+  /**
+   * Move whatever is in the composer into the queue and clear it.
+   *
+   * Shared by the Enter interception and the sender's queue button so the two
+   * entry points cannot drift apart. Returns false when there was nothing to
+   * enqueue or the queue is full.
+   */
+  const enqueueFromComposer = useCallback(
+    (textarea: HTMLTextAreaElement | null): boolean => {
+      if (!textarea) return false;
       const val = textarea.value.trim();
-      if (!val && pendingFileListRef.current.length === 0) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!val && pendingFileListRef.current.length === 0) return false;
       const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
       if (currentQ.length >= MAX_QUEUE_SIZE) {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
-        return;
+        return false;
       }
       const queueText = prepareLoopModeMessage(val);
       const enqueueIdentity = sessionApi.getSessionIdentity(
@@ -2553,18 +2715,54 @@ export default function ChatPage() {
       // any pending state updates (e.g. from setTextareaValue) before we
       // interact with the Attachments component's remove buttons.
       clearSenderAttachments();
+      return true;
+    },
+    [
+      queueKey,
+      queueSessionId,
+      selectedAgent,
+      captureRequestContext,
+      t,
+      message,
+    ],
+  );
+
+  // Intercept Enter to enqueue:
+  //  - Ctrl/Meta+Enter: always enqueue (even when idle)
+  //  - Plain Enter while loading: enqueue (SDK blocks triggerSend when loading)
+  //  - Plain Enter while the queue is not empty (including an item that is
+  //    currently being sent): enqueue, so we don't slip into a direct SDK
+  //    send during the brief idle window between two queued items.
+  // A pending auto-send timer alone is not busy: every finished reply arms
+  // one, and with nothing queued it has nothing to send.
+  useEffect(() => {
+    const handleEnterEnqueue = (e: KeyboardEvent) => {
+      if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
+      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isSessionTransition)
+        return;
+      const hasCtrl = e.ctrlKey || e.metaKey;
+      const queueBusy = messageQueueRef.current.length > 0;
+      if (!hasCtrl && !chatLoadingRef.current && !queueBusy) return;
+      if (!hasCtrl && e.altKey) return;
+      if (isComposingRef.current || e.isComposing) return;
+      const textarea = hasCtrl
+        ? getActiveSenderTextarea()
+        : getSenderTextareaFromTarget(e.target);
+      if (!textarea) return;
+      if (!textarea.value.trim() && pendingFileListRef.current.length === 0)
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      enqueueFromComposer(textarea);
     };
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
   }, [
     isChatActive,
-    queueSessionId,
-    selectedAgent,
-    captureRequestContext,
-    queueKey,
     sdkSessionAdapter,
     isSessionTransition,
+    enqueueFromComposer,
   ]);
 
   const handleQueueRemove = useCallback(
@@ -2590,7 +2788,11 @@ export default function ChatPage() {
 
   const handleQueueInterruptAndSend = useCallback(
     (item: QueueItem) => {
-      if (!isOwnerRef.current) return;
+      // Every bail-out below used to be silent, so the button looked dead.
+      if (!isOwnerRef.current) {
+        message.warning(t("chat.queue.otherTabOwner"));
+        return;
+      }
       const signal = queueExecutionScopeRef.current.signal;
       const agentId = item.agentId || selectedAgent;
       const sessionId = chatIdRef.current;
@@ -2643,7 +2845,7 @@ export default function ChatPage() {
         }
       });
     },
-    [executeQueuedItem, queueSessionId, selectedAgent, queueKey],
+    [executeQueuedItem, queueSessionId, selectedAgent, queueKey, message, t],
   );
 
   const handleQueueClear = useCallback(() => {
@@ -3191,6 +3393,8 @@ export default function ChatPage() {
       staleAutoSelectedIdRef.current = lastSessionIdRef.current;
       lastSessionIdRef.current = null;
 
+      holdReleaseRef.current?.();
+      setRuntimeRevived(false);
       setRefreshKey((prev) => prev + 1);
     }
     // Do not commit this ref yet. Persisting the previous Agent's Chat can
@@ -3635,7 +3839,7 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async (
+    const admitSubmission = async (
       data: IAgentScopeRuntimeWebUIInputData,
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (
@@ -3670,11 +3874,13 @@ export default function ChatPage() {
             }));
       const requestContext = captureRequestContext(data.context);
       let backendRunning = false;
+      // An auto-send timer pending over an empty queue is not busy; treating
+      // it as busy queued a send made right after a reply, which then showed
+      // in the chat and the queue at once.
       const queueBusy = () =>
         !isOwnerRef.current ||
         Boolean(chatLoadingRef.current) ||
-        useMessageQueueStore.getState().getQueue(queueKey).length > 0 ||
-        autoSendTimerRef.current !== null;
+        useMessageQueueStore.getState().getQueue(queueKey).length > 0;
       if (!queueBusy() && usesQwenPawBackend && backendChatId) {
         try {
           // Completed SSE can precede TaskTracker cleanup. Retain upstream's
@@ -3765,6 +3971,24 @@ export default function ChatPage() {
         ),
         biz_params: data.biz_params,
       };
+    };
+
+    // The SDK keeps the text in the composer while beforeSubmit awaits the
+    // backend status check, so on a slow network a second click re-submits the
+    // same text and it lands in the queue as a duplicate. Drop repeat submits
+    // until this one settles; the status request's own timeout bounds the wait.
+    const handleBeforeSubmit = async (
+      inputData: IAgentScopeRuntimeWebUIInputData,
+    ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
+      if (submitInFlightRef.current) return false;
+      submitInFlightRef.current = true;
+      setSubmitInFlight(true);
+      try {
+        return await admitSubmission(inputData);
+      } finally {
+        submitInFlightRef.current = false;
+        setSubmitInFlight(false);
+      }
     };
 
     // ── Resolve plugin extension snapshots ────────────────────────────────
@@ -4141,65 +4365,102 @@ export default function ChatPage() {
             {pluginSenderPrefix}
           </>
         ),
-        actionAffix: (
-          <span
-            className={`${styles.senderActionAffix} ${
-              compactSender ? styles.compactSenderAffix : ""
-            }`}
-          >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
+        // Render fn, not a static node: it is the only sender slot the SDK
+        // forwards that also reports `loading` and `sendDisabled`, which is
+        // what the queue button needs to know. (`sender.actions` looks like the
+        // natural place but Chat/Input never destructures it, so anything put
+        // there is silently dropped.)
+        actionAffix: (affixInfo: {
+          loading?: boolean | string;
+          sendDisabled?: boolean;
+        }) => {
+          // Composer text present while a turn streams: the queue button takes
+          // over as the composer's primary action and `queueSendActive` hides
+          // the SDK's stop button next to it (see index.module.less), so the
+          // sender never shows two competing buttons. Emptying the box drops
+          // the class again, which restores whichever button the SDK owns:
+          // stop while still streaming, disabled send once idle.
+          const queueSendActive =
+            Boolean(affixInfo?.loading) && !affixInfo?.sendDisabled;
+          return (
+            <span
+              className={`${styles.senderActionAffix} ${
+                compactSender ? styles.compactSenderAffix : ""
+              } ${queueSendActive ? styles.queueSendActive : ""}`}
+            >
+              {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span className={styles.senderContextAffix}>
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+              {usesQwenPawBackend && !isSessionTransition && (
+                <SessionProjectDirectory
+                  scope={sessionScope}
+                  compact={isMobile || compactSender}
+                  className={[
+                    !isMobile && !compactSender
+                      ? styles.senderProjectControl
+                      : "",
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 />
-              </span>
-            )}
-            {usesQwenPawBackend && !isSessionTransition && (
-              <SessionProjectDirectory
-                scope={sessionScope}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderProjectControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
-            )}
-            {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                decisionModelConfigured={decisionModelConfigured}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
-            ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
-                backend={selectedAgentBackend}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
-            ) : null}
-          </span>
-        ),
+              )}
+              {usesQwenPawBackend ? (
+                <ApprovalLevelToggle
+                  sessionId={queueKey}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  decisionModelConfigured={decisionModelConfigured}
+                  compact={isMobile || compactSender}
+                  className={[
+                    !isMobile && !compactSender
+                      ? styles.senderApprovalControl
+                      : "",
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+              ) : approvalPresets.length > 0 ? (
+                <HarnessApprovalToggle
+                  backend={selectedAgentBackend}
+                  presets={approvalPresets}
+                  className={
+                    isMobile ? styles.mobileComposerControl : undefined
+                  }
+                  compact={isMobile}
+                  onChange={(settings) => {
+                    backendControlsRef.current = settings;
+                  }}
+                />
+              ) : null}
+
+              {queueSendActive && (
+                <Tooltip title={t("chat.queue.addToQueue")}>
+                  <IconButton
+                    type="primary"
+                    icon={<SparkSendLine />}
+                    aria-label={t("chat.queue.addToQueue")}
+                    onClick={() =>
+                      enqueueFromComposer(getActiveSenderTextarea())
+                    }
+                  />
+                </Tooltip>
+              )}
+            </span>
+          );
+        },
         ...(supportsAttachments
           ? {
               attachments: {
@@ -4259,6 +4520,7 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          lastStreamEventAtRef.current = Date.now();
           // CoPaw's wire enum uses "cancelled"; the SDK uses "canceled".
           // Preserve cancellation instead of fabricating a completed, empty
           // assistant reply, including unfinished tool/content statuses.
@@ -4486,12 +4748,16 @@ export default function ChatPage() {
             render: ({
               data,
             }: {
-              data: { created_at?: number; completed_at?: number };
+              data: {
+                created_at?: number | string;
+                completed_at?: number | string;
+              };
             }) => {
               return (
                 <span style={timestampStyle}>
-                  {formatMessageTime(
-                    data?.completed_at ?? data?.created_at ?? 0,
+                  {formatDuration(
+                    data?.created_at ?? 0,
+                    data?.completed_at ?? 0,
                   )}
                 </span>
               );
@@ -4572,6 +4838,7 @@ export default function ChatPage() {
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
+    enqueueFromComposer,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,
@@ -4617,7 +4884,9 @@ export default function ChatPage() {
       setOpen={setTerminalOpen}
     >
       <div
-        className={`${styles.chatPageRoot} ${filesDrawerClass}`}
+        className={`${styles.chatPageRoot} ${filesDrawerClass} ${
+          submitInFlight ? styles.submitPending : ""
+        }`}
         onClickCapture={handleInternalFileLink}
       >
         {/* Main chat area */}
@@ -4628,6 +4897,7 @@ export default function ChatPage() {
               styles.chatMessagesArea,
               isWideMode && styles.wideMode,
               advisorConversation && styles.advisorComposer,
+              runtimeRevived && styles.revived,
             ]
               .filter(Boolean)
               .join(" ")}
@@ -4658,6 +4928,8 @@ export default function ChatPage() {
                 </ChatSessionTransition>
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
+            {/* Filled imperatively by holdView while a revive remounts. */}
+            <div ref={reviveFreezeHostRef} className={styles.reviveFreeze} />
           </div>
 
           {/* Rate-limit guidance banner */}

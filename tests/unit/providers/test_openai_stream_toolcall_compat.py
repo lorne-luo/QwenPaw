@@ -12,6 +12,7 @@ from agentscope.message import ToolCallBlock
 from agentscope.model._model_response import ChatResponse
 
 from qwenpaw.providers.openai_chat_model_compat import (
+    DSMLProtocolError,
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )
@@ -87,6 +88,55 @@ def _make_chunk(
     )
     choice = SimpleNamespace(delta=delta, finish_reason=None)
     return SimpleNamespace(usage=None, choices=[choice])
+
+
+@pytest.mark.parametrize("use_reasoning", [False, True])
+async def test_deepseek_stream_rejects_leaked_dsml(
+    use_reasoning: bool,
+) -> None:
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="deepseek-flash-max",
+        stream=True,
+    )
+    first = "</｜DSML｜tool_calls>"
+    stream = FakeAsyncStream(
+        [
+            _make_chunk(
+                reasoning_content=first if use_reasoning else None,
+                content=None if use_reasoning else first,
+            ),
+        ],
+    )
+
+    with pytest.raises(DSMLProtocolError, match="DSML"):
+        await model.parse_stream_for_test(datetime.now(), stream)
+
+
+async def test_non_deepseek_stream_does_not_apply_dsml_guard() -> None:
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+
+    responses = await model.parse_stream_for_test(
+        datetime.now(),
+        FakeAsyncStream([_make_chunk(content="Example: </invoke>")]),
+    )
+
+    text = "".join(
+        str(getattr(block, "text", "") or "")
+        for response in responses
+        for block in response.content
+    )
+    assert "</invoke>" in text
 
 
 async def test_stream_parser_skips_tool_call_without_function() -> None:

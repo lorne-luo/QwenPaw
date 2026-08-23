@@ -3,7 +3,8 @@
 
 Handles ``<think>...</think>`` (reasoning) and
 ``<tool_call>...</tool_call>`` (function calling) tags that local models
-like Qwen3-Instruct embed in their raw text output.
+like Qwen3-Instruct embed in their raw text output. It also detects leaked
+DeepSeek DSML without treating that provider protocol as executable tools.
 """
 
 from __future__ import annotations
@@ -25,6 +26,14 @@ THINK_END = "</think>"
 
 TOOL_CALL_START = "<tool_call>"
 TOOL_CALL_END = "</tool_call>"
+
+# Match tag syntax only; ordinary prose containing "invoke" is not protocol.
+_DSML_MARKER_RE = re.compile(
+    r"<\s*/?\s*(?:(?:｜|\|)DSML(?:｜|\|)\s*)?"
+    r"(?:tool_calls|invoke|parameter)(?:\s|>|/)",
+    re.IGNORECASE,
+)
+_DSML_DETECTOR_TAIL_LENGTH = 64
 
 # Regex to find a complete <think>...</think> block (non-greedy).
 _THINK_RE = re.compile(
@@ -66,6 +75,27 @@ _XML_PARAM_LENIENT_RE = re.compile(
     r"(?=<parameter=|</parameter>|<function=|</function>|\Z)",
     re.DOTALL,
 )
+
+
+def contains_dsml_protocol_leak(text: str) -> bool:
+    """Return whether *text* contains a DeepSeek DSML protocol marker."""
+    return bool(text and _DSML_MARKER_RE.search(text))
+
+
+class DSMLLeakDetector:
+    """Detect DSML markers even when a provider splits them across chunks."""
+
+    def __init__(self) -> None:
+        self._tail = ""
+
+    def push(self, content: str) -> bool:
+        """Consume one text delta and report a leaked protocol marker."""
+        if not content:
+            return False
+        combined = self._tail + content
+        leaked = contains_dsml_protocol_leak(combined)
+        self._tail = combined[-_DSML_DETECTOR_TAIL_LENGTH:]
+        return leaked
 
 # ---------------------------------------------------------------------------
 # Data classes

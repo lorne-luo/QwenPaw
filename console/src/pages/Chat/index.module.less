@@ -215,6 +215,14 @@
   flex: 0 0 auto !important;
 }
 
+/* The affix's queue button is the composer's send button while a turn streams,
+   so the SDK's stop button — its immediate next sibling — steps aside. Clearing
+   the composer drops the class and the stop button comes straight back. */
+.senderActionAffix.queueSendActive
+  + :global(div[class*="-sender-actions-list-presets"]) {
+  display: none;
+}
+
 @media (max-width: 1024px) {
   .filesPreviewOpen,
   .filesWorkspaceOpen {

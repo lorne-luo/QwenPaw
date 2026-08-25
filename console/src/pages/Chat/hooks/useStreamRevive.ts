@@ -15,14 +15,15 @@ import { useEffect } from "react";
  * history persisted while the screen was off. Either way the user sees
  * everything that happened in the meantime.
  *
- * Two triggers, because the two failure modes give different evidence:
+ * Three triggers, because the failure modes give different evidence:
  *
- *  - **The tab came back.** A freeze long enough to drop the connection is
- *    revived on sight, without waiting for proof that anything is stale:
+ *  - **A mobile screen came back.** A freeze long enough to drop the
+ *    connection is revived on sight, without waiting for proof that anything is stale:
  *    waiting would delay the tail of the answer by up to a silence window,
  *    and a chat that was written to from another channel (IM, a scheduled
  *    task) while the screen was off shows no local symptom at all. The
- *    reload costs one session load and loses nothing.
+ *    reload costs one session load and loses nothing. Desktop backgrounding
+ *    is different: a healthy stream stays attached and is not remounted.
  *  - **The tab never left.** No wake-up to react to, so silence is the only
  *    evidence. The backend heartbeats every 25s while a run is alive, so a
  *    stream quiet for a full minute is dead, not slow. Only a live run can
@@ -51,14 +52,17 @@ export const isStreamDead = (
 export type StreamReviveOptions = {
   /** True while the runtime still believes a response is streaming. */
   streaming: boolean;
+  /** Mobile pages are expected to be frozen when their screen turns off. */
+  mobile: boolean;
   /** Timestamp of the last SSE chunk; the hook stamps it when a run starts. */
   lastEventAtRef: { current: number };
   /** Remounts the chat so the session loader re-attaches to the run. */
-  revive: () => void;
+  revive: () => void | Promise<void>;
 };
 
 export function useStreamRevive({
   streaming,
+  mobile,
   lastEventAtRef,
   revive,
 }: StreamReviveOptions): void {
@@ -72,7 +76,7 @@ export function useStreamRevive({
       // Re-baseline first: if the reload cannot restore the stream (backend
       // down), the next attempt is a silence window away, not a check away.
       lastEventAtRef.current = Date.now();
-      revive();
+      void revive();
     };
 
     const onVisibility = () => {
@@ -82,7 +86,7 @@ export function useStreamRevive({
       }
       const hiddenMs = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = 0;
-      if (hiddenMs >= HIDDEN_KILL_MS) {
+      if (mobile && hiddenMs >= HIDDEN_KILL_MS) {
         doRevive();
         return;
       }
@@ -119,5 +123,5 @@ export function useStreamRevive({
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [streaming, lastEventAtRef, revive]);
+  }, [streaming, mobile, lastEventAtRef, revive]);
 }

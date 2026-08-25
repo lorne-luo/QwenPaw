@@ -4192,6 +4192,7 @@
       "edit": "Edit",
       "retry": "Retry",
       "skip": "Skip",
+      "addToQueue": "Add to queue, sends after the current reply",
       "interruptAndSend": "Interrupt & send",
       "delete": "Delete",
       "file": "File",

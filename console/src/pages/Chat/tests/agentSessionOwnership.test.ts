@@ -430,6 +430,60 @@ describe("agent session ownership epochs", () => {
     });
   });
 
+  it("forced wake-up preload bypasses a stale in-flight request", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const stale = deferred<ChatHistory>();
+    const getChatSpy = vi
+      .spyOn(api, "getChat")
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(makeHistory());
+
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+    const oldRequest = sessionApi.getSession(A_CHAT);
+    sessionApi.invalidateConvertedCache(A_CHAT);
+    const freshRequest = sessionApi.preloadSession(A_CHAT, undefined, true);
+
+    expect(getChatSpy).toHaveBeenCalledTimes(2);
+    const fresh = await freshRequest;
+    stale.resolve(makeHistory());
+    await oldRequest;
+    const testApi = sessionApi as unknown as {
+      convertedSessionCache: Map<
+        string,
+        { session: unknown; timestamp: number; updatedAt: string | null }
+      >;
+    };
+    expect(testApi.convertedSessionCache.get(A_CHAT)?.session).toBe(
+      fresh.session,
+    );
+  });
+
+  it("a superseded forced preload cannot replace the newer result", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const older = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat")
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce(makeHistory());
+
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+    const oldPreload = sessionApi.preloadSession(A_CHAT, undefined, true);
+    const newPreload = sessionApi.preloadSession(A_CHAT, undefined, true);
+    const fresh = await newPreload;
+    older.resolve(makeHistory());
+
+    await expect(oldPreload).rejects.toMatchObject({ name: "AbortError" });
+    const testApi = sessionApi as unknown as {
+      sessionResultCache: Map<string, { session: unknown }>;
+    };
+    expect(testApi.sessionResultCache.get(A_CHAT)?.session).toBe(fresh.session);
+  });
+
   it("a stale preload that fails with a normal error still rejects as AbortError", async () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),

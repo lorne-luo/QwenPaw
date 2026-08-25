@@ -38,6 +38,7 @@ import {
   Copy,
   Paperclip as SparkAttachmentLine,
   Settings as SettingOutlined,
+  Send as SparkSendLine,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
@@ -142,6 +143,8 @@ import {
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { useStreamRevive } from "./hooks/useStreamRevive";
+import { useLoadingWatchdog } from "./hooks/useLoadingWatchdog";
+import { prepareSessionRevive } from "./sessionRevive";
 import {
   createHeadlineFilterState,
   filterHeadlineDelta,
@@ -292,6 +295,34 @@ import {
 // Supports multiple concurrent sessions: each session has its own controller.
 // The controller registry lives in backgroundQueueRegistry (unit-tested).
 // ---------------------------------------------------------------------------
+
+/**
+ * One-shot backend status probe: true when the chat is not generating, false
+ * while it still is, null when the request was aborted (caller should bail).
+ *
+ * 404 / unreachable counts as idle so a caller never blocks forever on an id
+ * the backend does not know (e.g. one that is still a local timestamp).
+ *
+ * @param agentId - Overrides X-Agent-Id so switching agents does not cause a
+ *   cross-agent status misread.
+ */
+async function fetchChatIsIdle(
+  chatIdForStatus: string,
+  signal: AbortSignal,
+  agentId?: string,
+): Promise<boolean | null> {
+  if (!chatIdForStatus) return true;
+  try {
+    const chat = await chatApi.getChatStatus(chatIdForStatus, {
+      signal,
+      agentId,
+    });
+    return chat.status !== "running";
+  } catch {
+    if (signal.aborted) return null;
+    return true;
+  }
+}
 
 /**
  * Convert a queue item's attachments array into the content-item format
@@ -1522,7 +1553,9 @@ export default function ChatPage() {
     const controller = new AbortController();
     queueExecutionScopeRef.current = controller;
     return () => controller.abort();
-  }, [queueSessionId, selectedAgent, queueKey]);
+    // refreshKey: a remount disconnects the SDK Run, so the old scope's send
+    // lock must not keep waiting for an acceptance that never settles.
+  }, [queueSessionId, selectedAgent, queueKey, refreshKey]);
   const messageQueue =
     useMessageQueueStore((s) => s.queues[queueKey]) ?? EMPTY_QUEUE;
   const messageQueueRef = useRef(messageQueue);
@@ -2377,20 +2410,59 @@ export default function ChatPage() {
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+  const reviveInFlightRef = useRef<Promise<boolean> | null>(null);
 
   const reviveStream = useCallback(() => {
-    // Clearing lastSessionIdRef restores the first-load condition, so the
-    // runtime's mount-time "select the newest session" is suppressed by
-    // onSessionSelected and ChatSessionInitializer re-applies the chat in
-    // the URL. Without it a reload navigates away from the chat the user
-    // is looking at — the same guard the agent switch relies on.
-    lastSessionIdRef.current = null;
-    setRefreshKey((prev) => prev + 1);
+    if (reviveInFlightRef.current) return;
+    const sessionId = chatIdRef.current;
+    if (!sessionId) return;
+    const agentId = selectedAgentRef.current;
+    const task = prepareSessionRevive({
+      sessionId,
+      invalidate: (id) => sessionApi.invalidateConvertedCache(id),
+      preload: (id) => sessionApi.preloadSession(id, undefined, true),
+      isCurrent: () =>
+        (chatIdRef.current ?? sessionApi.lastActiveChatId) === sessionId &&
+        selectedAgentRef.current === agentId,
+      remount: () => {
+        // Clearing lastSessionIdRef restores the first-load condition, so
+        // the runtime cannot navigate to its newest session during remount.
+        lastSessionIdRef.current = null;
+        setRefreshKey((prev) => prev + 1);
+      },
+    });
+    reviveInFlightRef.current = task;
+    void task.finally(() => {
+      if (reviveInFlightRef.current === task) {
+        reviveInFlightRef.current = null;
+      }
+    });
   }, []);
   useStreamRevive({
     streaming: Boolean(chatLoading),
+    mobile: isMobile,
     lastEventAtRef: lastStreamEventAtRef,
     revive: reviveStream,
+  });
+
+  // Chat id the watchdog may ask the backend about. A local timestamp id is not
+  // a real session yet, and the backend would 404 it — which the probe reads as
+  // "idle" and would use to clear loading on a first message that is still
+  // being sent. So those are excluded outright.
+  const watchdogChatId = useMemo(() => {
+    const raw = chatId ?? "";
+    if (!raw) return "";
+    const resolved = sessionApi.getRealIdForSession(raw) ?? raw;
+    return isLocalTimestampId(resolved) ? "" : resolved;
+  }, [chatId]);
+
+  useLoadingWatchdog({
+    loading: Boolean(chatLoading),
+    chatId: watchdogChatId,
+    agentId: selectedAgent,
+    lastEventAtRef: lastStreamEventAtRef,
+    isChatIdle: fetchChatIsIdle,
+    onStuck: reviveStream,
   });
 
   useEffect(() => {
@@ -2514,36 +2586,22 @@ export default function ChatPage() {
     }
   }, [isOwner, queueSessionId, scheduleNextSend, queueKey]);
 
-  // Intercept Enter to enqueue:
-  //  - Ctrl/Meta+Enter: always enqueue (even when idle)
-  //  - Plain Enter while loading: enqueue (SDK blocks triggerSend when loading)
-  //  - Plain Enter while the queue subsystem is otherwise busy (queue not
-  //    empty / auto-send timer pending / an item is currently being sent):
-  //    enqueue, so we don't slip into a direct SDK send during the brief
-  //    idle window between two queued items.
-  useEffect(() => {
-    const handleEnterEnqueue = (e: KeyboardEvent) => {
-      if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
-      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isAgentTransition)
-        return;
-      const hasCtrl = e.ctrlKey || e.metaKey;
-      const queueBusy =
-        messageQueueRef.current.length > 0 || autoSendTimerRef.current !== null;
-      if (!hasCtrl && !chatLoadingRef.current && !queueBusy) return;
-      if (!hasCtrl && e.altKey) return;
-      if (isComposingRef.current || e.isComposing) return;
-      const textarea = hasCtrl
-        ? getActiveSenderTextarea()
-        : getSenderTextareaFromTarget(e.target);
-      if (!textarea) return;
+  /**
+   * Move whatever is in the composer into the queue and clear it.
+   *
+   * Shared by the Enter interception and the sender's queue button so the two
+   * entry points cannot drift apart. Returns false when there was nothing to
+   * enqueue or the queue is full.
+   */
+  const enqueueFromComposer = useCallback(
+    (textarea: HTMLTextAreaElement | null): boolean => {
+      if (!textarea) return false;
       const val = textarea.value.trim();
-      if (!val && pendingFileListRef.current.length === 0) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!val && pendingFileListRef.current.length === 0) return false;
       const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
       if (currentQ.length >= MAX_QUEUE_SIZE) {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
-        return;
+        return false;
       }
       const queueText = prepareLoopModeMessage(val);
       const enqueueIdentity = sessionApi.getSessionIdentity(
@@ -2574,19 +2632,43 @@ export default function ChatPage() {
       // any pending state updates (e.g. from setTextareaValue) before we
       // interact with the Attachments component's remove buttons.
       clearSenderAttachments();
+      return true;
+    },
+    [queueKey, queueSessionId, selectedAgent, captureRequestContext, t, message],
+  );
+
+  // Intercept Enter to enqueue:
+  //  - Ctrl/Meta+Enter: always enqueue (even when idle)
+  //  - Plain Enter while loading: enqueue (SDK blocks triggerSend when loading)
+  //  - Plain Enter while the queue subsystem is otherwise busy (queue not
+  //    empty / auto-send timer pending / an item is currently being sent):
+  //    enqueue, so we don't slip into a direct SDK send during the brief
+  //    idle window between two queued items.
+  useEffect(() => {
+    const handleEnterEnqueue = (e: KeyboardEvent) => {
+      if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
+      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isAgentTransition)
+        return;
+      const hasCtrl = e.ctrlKey || e.metaKey;
+      const queueBusy =
+        messageQueueRef.current.length > 0 || autoSendTimerRef.current !== null;
+      if (!hasCtrl && !chatLoadingRef.current && !queueBusy) return;
+      if (!hasCtrl && e.altKey) return;
+      if (isComposingRef.current || e.isComposing) return;
+      const textarea = hasCtrl
+        ? getActiveSenderTextarea()
+        : getSenderTextareaFromTarget(e.target);
+      if (!textarea) return;
+      if (!textarea.value.trim() && pendingFileListRef.current.length === 0)
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      enqueueFromComposer(textarea);
     };
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [
-    isChatActive,
-    queueSessionId,
-    selectedAgent,
-    captureRequestContext,
-    queueKey,
-    sdkSessionAdapter,
-    isAgentTransition,
-  ]);
+  }, [isChatActive, sdkSessionAdapter, isAgentTransition, enqueueFromComposer]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2611,7 +2693,11 @@ export default function ChatPage() {
 
   const handleQueueInterruptAndSend = useCallback(
     (item: QueueItem) => {
-      if (!isOwnerRef.current) return;
+      // Every bail-out below used to be silent, so the button looked dead.
+      if (!isOwnerRef.current) {
+        message.warning(t("chat.queue.otherTabOwner"));
+        return;
+      }
       const signal = queueExecutionScopeRef.current.signal;
       const agentId = item.agentId || selectedAgent;
       const sessionId = chatIdRef.current;
@@ -2664,7 +2750,7 @@ export default function ChatPage() {
         }
       });
     },
-    [executeQueuedItem, queueSessionId, selectedAgent, queueKey],
+    [executeQueuedItem, queueSessionId, selectedAgent, queueKey, message, t],
   );
 
   const handleQueueClear = useCallback(() => {
@@ -4136,14 +4222,31 @@ export default function ChatPage() {
             {pluginSenderPrefix}
           </>
         ),
-        actionAffix: (
-          <span
-            className={`${styles.senderActionAffix} ${
-              compactSender ? styles.compactSenderAffix : ""
-            }`}
-          >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
+        // Render fn, not a static node: it is the only sender slot the SDK
+        // forwards that also reports `loading` and `sendDisabled`, which is
+        // what the queue button needs to know. (`sender.actions` looks like the
+        // natural place but Chat/Input never destructures it, so anything put
+        // there is silently dropped.)
+        actionAffix: (affixInfo: {
+          loading?: boolean | string;
+          sendDisabled?: boolean;
+        }) => {
+          // Composer text present while a turn streams: the queue button takes
+          // over as the composer's primary action and `queueSendActive` hides
+          // the SDK's stop button next to it (see index.module.less), so the
+          // sender never shows two competing buttons. Emptying the box drops
+          // the class again, which restores whichever button the SDK owns:
+          // stop while still streaming, disabled send once idle.
+          const queueSendActive =
+            Boolean(affixInfo?.loading) && !affixInfo?.sendDisabled;
+          return (
+            <span
+              className={`${styles.senderActionAffix} ${
+                compactSender ? styles.compactSenderAffix : ""
+              } ${queueSendActive ? styles.queueSendActive : ""}`}
+            >
+              {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span className={styles.senderContextAffix}>
                 <ContextUsageIndicator
                   onCompact={handleCompactCommand}
                   onNew={handleNewCommand}
@@ -4192,8 +4295,22 @@ export default function ChatPage() {
                 }}
               />
             ) : null}
-          </span>
-        ),
+
+              {queueSendActive && (
+                <Tooltip title={t("chat.queue.addToQueue")}>
+                  <IconButton
+                    type="primary"
+                    icon={<SparkSendLine />}
+                    aria-label={t("chat.queue.addToQueue")}
+                    onClick={() =>
+                      enqueueFromComposer(getActiveSenderTextarea())
+                    }
+                  />
+                </Tooltip>
+              )}
+            </span>
+          );
+        },
         ...(supportsAttachments
           ? {
               attachments: {
@@ -4562,6 +4679,7 @@ export default function ChatPage() {
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
+    enqueueFromComposer,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,

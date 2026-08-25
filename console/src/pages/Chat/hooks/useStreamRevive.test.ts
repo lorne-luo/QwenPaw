@@ -61,13 +61,14 @@ describe("useStreamRevive", () => {
     vi.useRealTimers();
   });
 
-  const mount = (streaming: boolean) => {
+  const mount = (streaming: boolean, mobile = false) => {
     const revive = vi.fn();
     const lastEventAtRef = { current: 0 };
     const view = renderHook(
       (props: { streaming: boolean }) =>
         useStreamRevive({
           streaming: props.streaming,
+          mobile,
           lastEventAtRef,
           revive,
         }),
@@ -81,8 +82,8 @@ describe("useStreamRevive", () => {
     expect(lastEventAtRef.current).toBe(START);
   });
 
-  it("revives the moment the screen comes back on", () => {
-    const { revive } = mount(true);
+  it("revives mobile the moment the screen comes back on", () => {
+    const { revive } = mount(true, true);
 
     hide();
     advance(HIDDEN_KILL_MS);
@@ -94,7 +95,7 @@ describe("useStreamRevive", () => {
   });
 
   it("revives after a long screen-off too", () => {
-    const { revive } = mount(true);
+    const { revive } = mount(true, true);
 
     hide();
     advance(10 * 60_000);
@@ -105,7 +106,7 @@ describe("useStreamRevive", () => {
   });
 
   it("leaves a quick tab flick alone", () => {
-    const { revive } = mount(true);
+    const { revive } = mount(true, true);
 
     hide();
     advance(HIDDEN_KILL_MS - 1);
@@ -123,6 +124,17 @@ describe("useStreamRevive", () => {
     show();
 
     expect(revive).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a healthy desktop stream connected while backgrounded", () => {
+    const { revive, lastEventAtRef } = mount(true, false);
+
+    hide();
+    advance(10 * 60_000);
+    lastEventAtRef.current = Date.now();
+    show();
+
+    expect(revive).not.toHaveBeenCalled();
   });
 
   it("revives a visible tab whose stream went silent", () => {
@@ -163,13 +175,23 @@ describe("useStreamRevive", () => {
   });
 
   it("reloads an idle chat on wake, in case another channel wrote to it", () => {
-    const { revive } = mount(false);
+    const { revive } = mount(false, true);
 
     hide();
     advance(HIDDEN_KILL_MS);
     show();
 
     expect(revive).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload an idle desktop chat after a tab switch", () => {
+    const { revive } = mount(false, false);
+
+    hide();
+    advance(HIDDEN_KILL_MS * 10);
+    show();
+
+    expect(revive).not.toHaveBeenCalled();
   });
 
   it("never treats an idle chat's silence as a dead stream", () => {

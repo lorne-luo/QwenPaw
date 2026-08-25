@@ -16,6 +16,7 @@ import {
   Eraser as SparkClearLine,
 } from "lucide-react";
 import { useTheme } from "../../../contexts/ThemeContext";
+import { useIsMobile } from "../../../hooks/useIsMobile";
 import {
   type QueueItem,
   type QueueRunState,
@@ -53,6 +54,7 @@ export default function MessageQueuePanel({
 }: MessageQueuePanelProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const isMobile = useIsMobile();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -270,7 +272,7 @@ export default function MessageQueuePanel({
         return (
           <div
             key={item.id}
-            draggable={!isEditing && item.status !== "sending"}
+            draggable={!isMobile && !isEditing && item.status !== "sending"}
             onDragStart={() => handleDragStart(item.id)}
             onDragOver={(e) => handleDragOver(e, item.id)}
             onDrop={() => handleDrop(item.id)}
@@ -444,16 +446,18 @@ export default function MessageQueuePanel({
                   </span>
                 )}
 
-                {/* Row action buttons — always reserve space for layout stability */}
+                {/* Row action buttons — always reserve space for layout stability.
+                    Touch devices have no hover, so gating on it would make the
+                    whole row (interrupt-and-send included) unreachable there. */}
                 <span
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 2,
                     flexShrink: 0,
-                    opacity: isHovered ? 1 : 0,
+                    opacity: isMobile || isHovered ? 1 : 0,
                     transition: "opacity 0.15s ease",
-                    pointerEvents: isHovered ? "auto" : "none",
+                    pointerEvents: isMobile || isHovered ? "auto" : "none",
                   }}
                 >
                   <Tooltip title={t("chat.queue.edit")} mouseEnterDelay={0.5}>

@@ -84,7 +84,7 @@ export class UploadConflictError extends Error {
   }
 }
 
-interface WorkspaceFileChunk {
+export interface WorkspaceFileChunk {
   path: string;
   content: string;
   offset: number;

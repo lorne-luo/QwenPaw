@@ -50,7 +50,7 @@ interface ScalarEntry<F extends ChatScalarField> {
   registeredAt: number;
 }
 
-interface ListEntry<T> {
+export interface ListEntry<T> {
   registrationId: string;
   pluginId: string;
   item: T;

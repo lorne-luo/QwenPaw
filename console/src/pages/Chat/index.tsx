@@ -249,6 +249,7 @@ import {
   setTextareaValue,
   clearSubmittedSenderInput,
   formatMessageTime,
+  formatDuration,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
@@ -4597,12 +4598,16 @@ export default function ChatPage() {
             render: ({
               data,
             }: {
-              data: { created_at?: number; completed_at?: number };
+              data: {
+                created_at?: number | string;
+                completed_at?: number | string;
+              };
             }) => {
               return (
                 <span style={timestampStyle}>
-                  {formatMessageTime(
-                    data?.completed_at ?? data?.created_at ?? 0,
+                  {formatDuration(
+                    data?.created_at ?? 0,
+                    data?.completed_at ?? 0,
                   )}
                 </span>
               );

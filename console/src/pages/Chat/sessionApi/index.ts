@@ -259,6 +259,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   terminal?: { status?: string; error?: unknown },
+  runStartTs = 0,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -296,7 +297,12 @@ const buildResponseCard = (
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
-          created_at: firstTs || fallbackNow,
+          // Every message in a persisted reply shares one timestamp (stamped
+          // when the turn finished), so the turn start comes from the user
+          // message that triggered it. A turn without output has no end to
+          // measure against, so it does not get one.
+          created_at:
+            (outputMessages.length ? runStartTs : 0) || firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: terminal?.error ?? null,
           completed_at: finishedAt || lastTs || fallbackNow,
@@ -335,12 +341,15 @@ const convertMessages = (
     const startIdx = i;
     while (i < len && messages[i].role !== ROLE_USER) i++;
     const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
+    const prev = startIdx > 0 ? messages[startIdx - 1] : null;
+    const runStartTs =
+      prev && prev.role === ROLE_USER ? parseTimestamp(prev) : 0;
     if (
       outputMsgs.length ||
       terminal?.status === "failed" ||
       terminal?.status === "canceled"
     ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+      result.push(buildResponseCard(outputMsgs, terminal, runStartTs));
     }
   }
 

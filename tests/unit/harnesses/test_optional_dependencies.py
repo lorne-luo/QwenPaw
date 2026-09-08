@@ -25,7 +25,7 @@ def test_provider_sdks_are_optional_and_in_full() -> None:
     assert not any("claude-agent-sdk" in item for item in dependencies)
     assert extras["codex"] == ["openai-codex==0.144.4"]
     assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
-    assert extras["claude"] == ["claude-agent-sdk==0.2.139"]
+    assert extras["claude"] == ["claude-agent-sdk==0.2.163"]
     assert extras["full"] == [
         "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder,claude]",
     ]

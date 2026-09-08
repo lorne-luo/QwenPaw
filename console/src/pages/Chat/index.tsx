@@ -2418,13 +2418,14 @@ export default function ChatPage() {
     const sessionId = chatIdRef.current;
     if (!sessionId) return;
     const agentId = selectedAgentRef.current;
+    const isCurrent = () =>
+      chatIdRef.current === sessionId && selectedAgentRef.current === agentId;
     const task = prepareSessionRevive({
       sessionId,
       invalidate: (id) => sessionApi.invalidateConvertedCache(id),
-      preload: (id) => sessionApi.preloadSession(id, undefined, true),
-      isCurrent: () =>
-        (chatIdRef.current ?? sessionApi.lastActiveChatId) === sessionId &&
-        selectedAgentRef.current === agentId,
+      preload: (id) =>
+        sessionApi.preloadSession(id, undefined, true, isCurrent),
+      isCurrent,
       remount: () => {
         // Clearing lastSessionIdRef restores the first-load condition, so
         // the runtime cannot navigate to its newest session during remount.

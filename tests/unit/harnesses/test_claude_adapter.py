@@ -24,12 +24,17 @@ pytest.importorskip(
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     CLIConnectionError,
+    PermissionResultAllow,
     ProcessError,
     ResultMessage,
     SessionMessage,
     StreamEvent,
+    SystemMessage,
     TextBlock,
+    ToolResultBlock,
+    UserMessage,
 )
 
 from qwenpaw.harnesses.events import (
@@ -76,8 +81,16 @@ _GATEWAY_ENV = {
 }
 
 
+# Ends FakeClaudeClient.receive_messages, like a CLI process that exits.
+_STREAM_END = object()
+
+
 class FakeClaudeClient:
-    """Minimal Claude Code SDK client double."""
+    """Minimal Claude Code SDK client double.
+
+    Each query emits ``messages`` onto one stream that ``receive_messages``
+    yields across turns, like the SDK's persistent connection.
+    """
 
     def __init__(self, options: ClaudeAgentOptions) -> None:
         self.options = options
@@ -85,6 +98,7 @@ class FakeClaudeClient:
         self.disconnected = False
         self.interrupted = False
         self.prompts: list[tuple[Any, str]] = []
+        self.inbox: asyncio.Queue[Any] = asyncio.Queue()
         self.server_info: dict[str, Any] = {"skills": []}
         self.messages: list[Any] = [
             StreamEvent(
@@ -122,10 +136,15 @@ class FakeClaudeClient:
         if not isinstance(prompt, str):
             prompt = [message async for message in prompt]
         self.prompts.append((prompt, session_id))
-
-    async def receive_response(self):
-        """Yield one complete response."""
         for message in self.messages:
+            self.inbox.put_nowait(message)
+
+    async def receive_messages(self):
+        """Yield every message the CLI emits until the stream ends."""
+        while True:
+            message = await self.inbox.get()
+            if message is _STREAM_END:
+                return
             yield message
 
     async def interrupt(self) -> None:
@@ -513,7 +532,10 @@ async def test_turn_streams_events_and_persists_the_session(
     assert options.cwd == tmp_path
     assert options.model == "opus"
     assert options.env == _GATEWAY_ENV
-    assert options.extra_args == {"effort": "high"}
+    assert options.extra_args == {
+        "replay-user-messages": None,
+        "effort": "high",
+    }
     assert options.include_partial_messages is True
     assert options.session_id is not None
     assert options.resume is None
@@ -550,7 +572,7 @@ async def test_default_model_alias_sends_no_model_argument(
     ]
 
     assert clients[0].options.model is None
-    assert clients[0].options.extra_args == {}
+    assert clients[0].options.extra_args == {"replay-user-messages": None}
 
 
 @pytest.mark.asyncio
@@ -583,7 +605,10 @@ async def test_full_access_preset_skips_permission_checks(
 
     options = clients[0].options
     assert options.permission_mode == "bypassPermissions"
-    assert options.extra_args == {"dangerously-skip-permissions": None}
+    assert options.extra_args == {
+        "replay-user-messages": None,
+        "dangerously-skip-permissions": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -651,7 +676,9 @@ async def test_session_is_not_recorded_until_the_cli_answers(
 
     def factory(options: ClaudeAgentOptions) -> FakeClaudeClient:
         client = FakeClaudeClient(options)
-        client.messages = []
+        if not clients:
+            # The first CLI process exits before it answers.
+            client.messages = [_STREAM_END]
         clients.append(client)
         return client
 
@@ -674,8 +701,8 @@ async def test_session_is_not_recorded_until_the_cli_answers(
     assert adapter._sessions == {}
     assert not (tmp_path / "claude_sessions.json").exists()
 
-    # A later turn on the same client picks the id back up once output flows.
-    clients[0].messages = FakeClaudeClient(ClaudeAgentOptions()).messages
+    # The next turn reconnects under the same id and records it once output
+    # flows.
     _ = [
         event
         async for event in adapter.run_turn(
@@ -686,6 +713,8 @@ async def test_session_is_not_recorded_until_the_cli_answers(
         )
     ]
 
+    assert len(clients) == 2
+    assert clients[1].options.session_id == clients[0].options.session_id
     assert adapter._sessions["chat-1"] == clients[0].options.session_id
 
 
@@ -1098,6 +1127,7 @@ async def test_reset_session_forgets_the_local_mapping(
 
     assert adapter._sessions == {}
     assert adapter._clients == {}
+    assert adapter._readers == {}
     assert client.disconnected is True
 
 
@@ -1105,15 +1135,13 @@ async def test_reset_session_forgets_the_local_mapping(
 async def test_cancelling_a_turn_interrupts_claude(tmp_path: Path) -> None:
     binary = _executable(tmp_path / "claude")
     response_started = asyncio.Event()
-    response_release = asyncio.Event()
 
-    class BlockingClaudeClient(FakeClaudeClient):
-        async def receive_response(self):
+    class SilentClaudeClient(FakeClaudeClient):
+        async def query(self, prompt: Any, session_id: str = "default"):
+            self.prompts.append((prompt, session_id))
             response_started.set()
-            await response_release.wait()
-            yield self.messages[0]
 
-    client = BlockingClaudeClient(ClaudeAgentOptions())
+    client = SilentClaudeClient(ClaudeAgentOptions())
     adapter = ClaudeAdapter(
         tmp_path,
         binary=str(binary),
@@ -1177,3 +1205,553 @@ async def test_cli_timeout_reaps_process(tmp_path: Path) -> None:
         await adapter._run_cli("auth", "status", "--json")
 
     assert process.killed is True
+
+
+@pytest.mark.parametrize("cleanup_failure", [None, "interrupt", "disconnect"])
+async def test_cancelled_turn_reconnects_without_stale_result(
+    tmp_path: Path, cleanup_failure: str | None,
+) -> None:
+    started = asyncio.Event()
+    clients = []
+
+    class QueuedClient(FakeClaudeClient):
+        async def query(self, prompt: Any, session_id: str = "default"):
+            if clients[0] is not self:
+                await super().query(prompt, session_id)
+                return
+            # The first turn streams one delta, then hangs.
+            self.prompts.append((prompt, session_id))
+            self.inbox.put_nowait(self.messages[0])
+
+        async def interrupt(self):
+            await super().interrupt()
+            # Interrupt leaves a terminal result a reused client would see.
+            self.inbox.put_nowait(self.messages[-1])
+            if cleanup_failure == "interrupt":
+                raise RuntimeError("interrupt failed")
+
+        async def disconnect(self):
+            await super().disconnect()
+            if cleanup_failure == "disconnect":
+                raise RuntimeError("disconnect failed")
+
+    def factory(options):
+        client = QueuedClient(options)
+        clients.append(client)
+        return client
+
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=factory,
+    )
+
+    async def consume():
+        events = []
+        async for event in adapter.run_turn(
+            session_id="chat", prompt="Hi", cwd=tmp_path, settings={},
+        ):
+            events.append(event)
+            started.set()
+        return events
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    resume_id = adapter._sessions["chat"]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    events = await consume()
+    assert any(event.text == "Done" for event in events)
+    assert len(clients) == 2
+    assert clients[0].disconnected
+    assert clients[1].options.resume == resume_id
+
+
+@pytest.mark.parametrize("default_policy", ["allow", "ask", "deny"])
+async def test_empty_mcp_allowlist_is_not_connected(tmp_path, default_policy):
+    adapter = ClaudeAdapter(tmp_path, binary=str(_executable(tmp_path / "claude")))
+    options = adapter._options(
+        session_id="chat", claude_session_id="id", is_resume=False,
+        cwd=tmp_path, plugin_path=None, settings={
+            "_runtime_capabilities": HarnessRuntimeCapabilities(mcp_servers=[
+                HarnessMCPServerDefinition(
+                    name="docs", display_name="Docs", transport="stdio",
+                    command="docs", tools=[], default_policy=default_policy,
+                ),
+            ]),
+        },
+    )
+    assert options.mcp_servers == {}
+
+
+@pytest.mark.parametrize("mode", ["default", "bypassPermissions"])
+@pytest.mark.parametrize("tools,default,policies,tool,effect", [
+    (["read"], "allow", {}, "write", "deny"),
+    (["read"], "allow", {}, "read", "allow"),
+    (["read"], "deny", {"read": "allow"}, "read", "allow"),
+    (["read"], "allow", {"read": "deny"}, "read", "deny"),
+    (None, "allow", {}, "write", "allow"),
+    (None, "deny", {}, "write", "deny"),
+    (None, "ask", {}, "read", "ask"),
+    (["read"], "allow", {"read": "ask"}, "read", "ask"),
+])
+@pytest.mark.parametrize("approved", [False, True])
+async def test_mcp_pre_execution_policy(
+    tmp_path, mode, tools, default, policies, tool, effect, approved,
+):
+    from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+
+    adapter = ClaudeAdapter(tmp_path, binary=str(_executable(tmp_path / "claude")))
+    options = adapter._options(
+        session_id="chat", claude_session_id="id", is_resume=False,
+        cwd=tmp_path, plugin_path=None, settings={
+            "permission_mode": mode,
+            "_runtime_capabilities": HarnessRuntimeCapabilities(mcp_servers=[
+                HarnessMCPServerDefinition(
+                    name="docs", display_name="Docs", transport="stdio",
+                    command="docs", tools=tools, default_policy=default,
+                    tool_policies=policies,
+                ),
+            ]),
+        },
+    )
+    approval = AsyncMock(return_value=(
+        PermissionResultAllow() if approved else PermissionResultDeny()
+    ))
+    adapter._approve_tool = approval
+    assert options.hooks and options.hooks.get("PreToolUse")
+    hook = options.hooks["PreToolUse"][0].hooks[0]
+    result = await hook({
+        "tool_name": f"mcp__docs__{tool}", "tool_input": {"x": 1},
+    }, "call-1", {})
+    expected = ("allow" if approved else "deny") if effect == "ask" else effect
+    assert result["hookSpecificOutput"]["permissionDecision"] == expected
+    assert approval.await_count == (1 if effect == "ask" else 0)
+    assert await hook({"tool_name": "Read"}, "call-2", {}) == {}
+    if expected == "allow":
+        assert "mcp__docs__*" not in options.disallowed_tools
+
+
+async def test_mcp_hook_matches_longest_managed_server_name(tmp_path):
+    adapter = ClaudeAdapter(
+        tmp_path,
+        binary=str(_executable(tmp_path / "claude")),
+    )
+    capabilities = HarnessRuntimeCapabilities(mcp_servers=[
+        HarnessMCPServerDefinition(
+            name="docs", display_name="Docs", transport="stdio",
+            command="docs", default_policy="deny",
+        ),
+        HarnessMCPServerDefinition(
+            name="docs__private", display_name="Private", transport="stdio",
+            command="docs", tools=None, default_policy="deny",
+            tool_policies={"read": "allow"},
+        ),
+    ])
+    options = adapter._options(
+        session_id="chat", claude_session_id="id", is_resume=False,
+        cwd=tmp_path, plugin_path=None,
+        settings={"_runtime_capabilities": capabilities},
+    )
+    assert set(options.mcp_servers) == {"docs__private"}
+    hook = options.hooks["PreToolUse"][0].hooks[0]
+    result = await hook(
+        {"tool_name": "mcp__docs__private__read"}, "call", {},
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert await hook(
+        {"tool_name": "mcp__unmanaged__read"}, "call", {},
+    ) == {}
+
+
+async def test_mcp_policy_uses_the_cli_server_name(tmp_path):
+    # Claude Code names tools mcp__<server>__<tool>, with every character of
+    # the server name outside [a-zA-Z0-9_-] replaced by "_".
+    adapter = ClaudeAdapter(
+        tmp_path,
+        binary=str(_executable(tmp_path / "claude")),
+    )
+    capabilities = HarnessRuntimeCapabilities(mcp_servers=[
+        HarnessMCPServerDefinition(
+            name="my docs.v2", display_name="Docs", transport="stdio",
+            command="docs", tools=None, default_policy="allow",
+            tool_policies={"purge": "deny"},
+        ),
+    ])
+    options = adapter._options(
+        session_id="chat", claude_session_id="id", is_resume=False,
+        cwd=tmp_path, plugin_path=None,
+        settings={
+            "permission_mode": "bypassPermissions",
+            "_runtime_capabilities": capabilities,
+        },
+    )
+    assert options.disallowed_tools == ["mcp__my_docs_v2__purge"]
+    hook = options.hooks["PreToolUse"][0].hooks[0]
+    result = await hook(
+        {"tool_name": "mcp__my_docs_v2__purge"}, "call", {},
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize("failure", ["error", "timeout"])
+async def test_mcp_approval_failure_returns_explicit_deny(
+    tmp_path, monkeypatch, failure,
+):
+    monkeypatch.setattr(
+        "qwenpaw.harnesses.claude.adapter."
+        "TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS",
+        0.01,
+    )
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+    )
+    capabilities = HarnessRuntimeCapabilities(mcp_servers=[
+        HarnessMCPServerDefinition(
+            name="docs", display_name="Docs", transport="stdio",
+            command="docs", default_policy="ask",
+        ),
+    ])
+    options = adapter._options(
+        session_id="chat", claude_session_id="id", is_resume=False,
+        cwd=tmp_path, plugin_path=None, settings={
+            "permission_mode": "bypassPermissions",
+            "_runtime_capabilities": capabilities,
+        },
+    )
+
+    async def broken_approval(*args):
+        if failure == "error":
+            raise RuntimeError("approval service unavailable")
+        await asyncio.Event().wait()
+
+    adapter._approve_tool = broken_approval
+    hook = options.hooks["PreToolUse"][0].hooks[0]
+    async with asyncio.timeout(1):
+        result = await hook(
+            {"tool_name": "mcp__docs__read"}, "call", {},
+        )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+async def test_mcp_approval_cancellation_propagates(tmp_path):
+    adapter = ClaudeAdapter(tmp_path)
+    capabilities = HarnessRuntimeCapabilities(mcp_servers=[
+        HarnessMCPServerDefinition(
+            name="docs", display_name="Docs", transport="stdio",
+            command="docs", default_policy="ask",
+        ),
+    ])
+    started = asyncio.Event()
+
+    async def pending_approval(*args):
+        started.set()
+        await asyncio.Event().wait()
+
+    adapter._approve_tool = pending_approval
+    task = asyncio.create_task(adapter._gate_mcp_tool(
+        "chat", capabilities, {"tool_name": "mcp__docs__read"}, "call",
+    ))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_closing_turn_at_yield_evicts_client_and_resumes(tmp_path):
+    clients = []
+
+    def factory(options):
+        client = FakeClaudeClient(options)
+        clients.append(client)
+        return client
+
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=factory,
+    )
+    stream = adapter.run_turn(
+        session_id="chat", prompt="Hi", cwd=tmp_path, settings={},
+    )
+    assert (await anext(stream)).text == "Done"
+    resume_id = adapter._sessions["chat"]
+    await stream.aclose()
+    assert clients[0].interrupted
+    assert clients[0].disconnected
+    assert "chat" not in adapter._clients
+    events = [event async for event in adapter.run_turn(
+        session_id="chat", prompt="Again", cwd=tmp_path, settings={},
+    )]
+    assert any(event.text == "Done" for event in events)
+    assert clients[1].options.resume == resume_id
+
+
+async def test_closing_reset_notice_evicts_fresh_client(tmp_path):
+    write_json_atomic(
+        tmp_path / "claude_sessions.json", {"chat": "stale"},
+    )
+    clients = []
+
+    def factory(options):
+        client = FakeClaudeClient(options)
+        if options.resume:
+            client.connect = AsyncMock(side_effect=ProcessError(
+                "No conversation found with session ID: stale", exit_code=1,
+            ))
+        clients.append(client)
+        return client
+
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=factory,
+    )
+    stream = adapter.run_turn(
+        session_id="chat", prompt="Hi", cwd=tmp_path, settings={},
+    )
+    assert "no longer exists" in (await anext(stream)).text
+    fresh = clients[-1]
+    assert not fresh.prompts
+    await stream.aclose()
+    assert fresh.interrupted
+    assert fresh.disconnected
+    assert "chat" not in adapter._clients
+    assert "chat" not in adapter._pending
+
+
+def _text_delta(text: str) -> StreamEvent:
+    return StreamEvent(
+        uuid=f"stream-{text}",
+        session_id="claude-session",
+        event={
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": text},
+        },
+    )
+
+
+def _turn(text: str) -> list[Any]:
+    """One CLI turn: init, a streamed reply, and its result."""
+    return [
+        SystemMessage(subtype="init", data={}),
+        _text_delta(text),
+        FakeClaudeClient(ClaudeAgentOptions()).messages[-1],
+    ]
+
+
+async def _drained(client: FakeClaudeClient) -> None:
+    for _ in range(100):
+        if client.inbox.empty():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("the adapter stopped reading the client")
+
+
+def _texts(events) -> list[str]:
+    return [
+        event.text for event in events
+        if event.kind == HarnessEventKind.TEXT_DELTA
+    ]
+
+
+async def test_messages_between_turns_are_drained_not_replayed(tmp_path):
+    client = FakeClaudeClient(ClaudeAgentOptions())
+    client.messages = _turn("First")
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=lambda _options: client,
+    )
+
+    async def turn(prompt: str):
+        return [event async for event in adapter.run_turn(
+            session_id="chat", prompt=prompt, cwd=tmp_path, settings={},
+        )]
+
+    assert _texts(await turn("one")) == ["First"]
+
+    # A background agent wakes the session and finishes a whole CLI turn,
+    # with more output than the SDK buffers, while no QwenPaw turn runs.
+    for message in [
+        SystemMessage(subtype="init", data={}),
+        *[_text_delta("Background") for _ in range(150)],
+        client.messages[-1],
+    ]:
+        client.inbox.put_nowait(message)
+    await _drained(client)
+
+    client.messages = _turn("Second")
+    assert _texts(await turn("two")) == ["Second"]
+
+
+async def test_prompt_during_background_turn_skips_that_turn(tmp_path):
+    client = FakeClaudeClient(ClaudeAgentOptions())
+    client.messages = _turn("First")
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=lambda _options: client,
+    )
+    _ = [event async for event in adapter.run_turn(
+        session_id="chat", prompt="one", cwd=tmp_path, settings={},
+    )]
+
+    # The wake-up turn is still open when the next prompt is sent; the CLI
+    # finishes it before it runs the prompt.
+    client.inbox.put_nowait(SystemMessage(subtype="init", data={}))
+    client.inbox.put_nowait(_text_delta("Background"))
+    await _drained(client)
+    client.messages = [
+        _text_delta("More background"),
+        client.messages[-1],
+        *_turn("Second"),
+    ]
+
+    events = [event async for event in adapter.run_turn(
+        session_id="chat", prompt="two", cwd=tmp_path, settings={},
+    )]
+
+    assert _texts(events) == ["Second"]
+    assert events[-1].kind == HarnessEventKind.COMPLETED
+
+
+async def test_prompt_folded_into_background_turn_ends_with_it(tmp_path):
+    client = FakeClaudeClient(ClaudeAgentOptions())
+    client.messages = _turn("First")
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=lambda _options: client,
+    )
+    _ = [event async for event in adapter.run_turn(
+        session_id="chat", prompt="one", cwd=tmp_path, settings={},
+    )]
+
+    # A wake-up turn is running a tool when the prompt arrives; the CLI
+    # appends the prompt to that turn after the tool result.
+    client.inbox.put_nowait(SystemMessage(subtype="init", data={}))
+    client.inbox.put_nowait(_text_delta("Background"))
+    await _drained(client)
+    client.messages = [
+        UserMessage(content=[ToolResultBlock(tool_use_id="toolu_bg")]),
+        UserMessage(content="two", uuid="echo-two"),
+        _text_delta("Second"),
+        client.messages[-1],
+    ]
+
+    events = await asyncio.wait_for(
+        _collect(adapter.run_turn(
+            session_id="chat", prompt="two", cwd=tmp_path, settings={},
+        )),
+        timeout=5,
+    )
+
+    assert _texts(events) == ["Second"]
+    assert events[-1].kind == HarnessEventKind.COMPLETED
+
+
+async def _collect(stream) -> list[Any]:
+    return [event async for event in stream]
+
+
+class _ScriptedTransport:
+    """CLI stand-in for a real ClaudeSDKClient: answers the handshake, ends
+    each prompt with a result, and lets the test emit later frames."""
+
+    def __init__(self) -> None:
+        self.frames: asyncio.Queue[Any] = asyncio.Queue()
+        self.control_responses: list[dict[str, Any]] = []
+
+    async def connect(self) -> None:
+        return None
+
+    async def write(self, data: str) -> None:
+        message = json.loads(data)
+        if message.get("type") == "control_response":
+            self.control_responses.append(message["response"])
+        elif message.get("type") == "control_request":
+            self.frames.put_nowait({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": message["request_id"],
+                    "response": {},
+                },
+            })
+        elif message.get("type") == "user":
+            for frame in (
+                {"type": "system", "subtype": "init"},
+                {
+                    "type": "result", "subtype": "success",
+                    "duration_ms": 1, "duration_api_ms": 1,
+                    "is_error": False, "num_turns": 1,
+                    "session_id": "claude-session",
+                },
+            ):
+                self.frames.put_nowait(frame)
+
+    async def read_messages(self):
+        while True:
+            frame = await self.frames.get()
+            if frame is _STREAM_END:
+                return
+            yield frame
+
+    async def close(self) -> None:
+        self.frames.put_nowait(_STREAM_END)
+
+    async def end_input(self) -> None:
+        return None
+
+    def is_ready(self) -> bool:
+        return True
+
+
+async def test_background_permission_request_is_answered_after_turn(
+    tmp_path,
+):
+    transport = _ScriptedTransport()
+    adapter = ClaudeAdapter(
+        tmp_path, binary=str(_executable(tmp_path / "claude")),
+        client_factory=lambda options: ClaudeSDKClient(
+            options, transport=transport,
+        ),
+    )
+    approved = asyncio.Event()
+
+    async def approve(*_args):
+        approved.set()
+        return PermissionResultAllow()
+
+    adapter._approve_tool = approve
+    try:
+        _ = [event async for event in adapter.run_turn(
+            session_id="chat", prompt="Start", cwd=tmp_path, settings={},
+        )]
+
+        # A background agent keeps streaming past the SDK's 100-message
+        # buffer, then asks to run a tool, with no QwenPaw turn running.
+        for index in range(150):
+            transport.frames.put_nowait({
+                "type": "stream_event", "uuid": f"bg-{index}",
+                "session_id": "claude-session",
+                "event": {"type": "content_block_delta"},
+                "parent_tool_use_id": "toolu_background",
+            })
+        transport.frames.put_nowait({
+            "type": "control_request", "request_id": "perm-1",
+            "request": {
+                "subtype": "can_use_tool", "tool_name": "Bash",
+                "input": {"command": "ls"},
+                "permission_suggestions": None,
+            },
+        })
+
+        await asyncio.wait_for(approved.wait(), timeout=5)
+        for _ in range(100):
+            if any(
+                response.get("request_id") == "perm-1"
+                for response in transport.control_responses
+            ):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("the permission answer never reached the CLI")
+    finally:
+        await adapter.stop()

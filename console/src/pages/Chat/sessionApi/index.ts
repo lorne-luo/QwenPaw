@@ -707,6 +707,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     signal?: AbortSignal,
     forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<{
     session: IAgentScopeRuntimeWebUISession;
     realId: string | null;
@@ -723,13 +724,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             owner,
             fetchGeneration,
             true,
+            isCurrent,
           )
         : await this.getSession(sessionId, signal);
 
       // A preload that completes after an agent switch must fail like an
       // aborted request: resolving normally would let the caller navigate
       // the new agent to the stale session and mark it as preferred.
-      if (!this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)) {
+      if (
+        !isCurrent() ||
+        !this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)
+      ) {
         throw new DOMException("Aborted", "AbortError");
       }
 
@@ -759,7 +764,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // A stale completion must look like an abort on the error path too:
       // a plain network/backend rejection would otherwise be handled as a
       // failure of the CURRENT switch and select the old agent's session.
-      if (!this.isActiveOwner(owner)) {
+      if (!isCurrent() || !this.isActiveOwner(owner)) {
         throw new DOMException("Aborted", "AbortError");
       }
       // Don't reset switching state on abort — the new switch owns the lock
@@ -1586,6 +1591,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     owner: SessionOwnerToken,
     fetchGeneration: number,
     forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<ExtendedSession> {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
@@ -1601,7 +1607,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         cached.realId =
           listEntry?.realId ??
           (backendId !== displayId ? backendId : cached.realId);
-        if (this.isCurrentSessionFetch(displayId, fetchGeneration, owner)) {
+        if (
+          isCurrent() &&
+          this.isCurrentSessionFetch(displayId, fetchGeneration, owner)
+        ) {
           this.applySessionView(cached, owner);
         }
         return cached;
@@ -1620,11 +1629,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           .reconcileHistory(id, owner.agentId, chatHistory.messages || []);
       }
     }
-    const canApply = this.isCurrentSessionFetch(
-      displayId,
-      fetchGeneration,
-      owner,
-    );
+    const canApply =
+      isCurrent() &&
+      this.isCurrentSessionFetch(displayId, fetchGeneration, owner);
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     const patchedPending = canApply
@@ -1671,10 +1678,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     owner: SessionOwnerToken,
     fetchGeneration: number,
     forceFresh = false,
+    isCurrent: () => boolean = () => true,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
-      if (this.isActiveOwner(owner)) {
+      if (isCurrent() && this.isActiveOwner(owner)) {
         useTurnUsageStore.getState().setSnapshot(null);
       }
       return {
@@ -1701,12 +1709,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             owner,
             fetchGeneration,
             forceFresh,
+            isCurrent,
           );
         } catch (error) {
           if (forceFresh) throw error;
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
-          if (this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)) {
+          if (
+            isCurrent() &&
+            this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)
+          ) {
             this.applySessionView(fromList, owner);
           }
           return fromList;
@@ -1729,10 +1741,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
               owner,
               fetchGeneration,
               forceFresh,
+              isCurrent,
             );
           } catch (error) {
             if (forceFresh) throw error;
-            if (this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)) {
+            if (
+              isCurrent() &&
+              this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)
+            ) {
               this.applySessionView(resolved, owner);
             }
             return resolved;
@@ -1740,7 +1756,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         }
       }
       if (fromList) {
-        if (this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)) {
+        if (
+          isCurrent() &&
+          this.isCurrentSessionFetch(sessionId, fetchGeneration, owner)
+        ) {
           this.applySessionView(fromList, owner);
         }
         return fromList;
@@ -1748,7 +1767,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return this.createEmptySession(
         sessionId,
         owner,
-        this.isCurrentSessionFetch(sessionId, fetchGeneration, owner),
+        isCurrent() &&
+          this.isCurrentSessionFetch(sessionId, fetchGeneration, owner),
       );
     }
 
@@ -1766,6 +1786,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         owner,
         fetchGeneration,
         forceFresh,
+        isCurrent,
       );
     } catch (error: any) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
@@ -1776,7 +1797,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         const emptySession = this.createEmptySession(
           sessionId,
           owner,
-          this.isCurrentSessionFetch(sessionId, fetchGeneration, owner),
+          isCurrent() &&
+            this.isCurrentSessionFetch(sessionId, fetchGeneration, owner),
         );
         emptySession.id = sessionId;
         return emptySession;

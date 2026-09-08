@@ -121,7 +121,9 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof props.options?.sender?.actionAffix === "function"
+          ? props.options.sender.actionAffix({})
+          : props.options?.sender?.actionAffix}
       </div>
     );
   }),

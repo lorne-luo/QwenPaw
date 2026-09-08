@@ -88,7 +88,13 @@ def mcp_servers(
     """Convert resolved MCP servers to Claude Code SDK dictionaries."""
     result: dict[str, Any] = {}
     for server in capabilities.mcp_servers:
-        if server.tools is None and server.default_policy == "deny":
+        if server.tools == [] or (
+            server.tools is None
+            and server.default_policy == "deny"
+            and not any(
+                effect != "deny" for effect in server.tool_policies.values()
+            )
+        ):
             continue
         if server.transport == "stdio":
             config: dict[str, Any] = {
@@ -116,13 +122,19 @@ def tool_policies(
 
     Claude Code has no per-server permission policy, so QwenPaw expresses tool
     policy through the CLI's ``mcp__<server>__<tool>`` rule names. An ``ask``
-    policy is deliberately absent from both lists so the call falls through to
-    the ``can_use_tool`` approval callback.
+    policy is deliberately absent from both lists; the PreToolUse gate handles
+    approval and enforces the allowlist independently of CLI permission mode.
     """
     allowed: list[str] = []
     disallowed: list[str] = []
     for server in capabilities.mcp_servers:
-        if server.tools is None and server.default_policy == "deny":
+        if server.tools == [] or (
+            server.tools is None
+            and server.default_policy == "deny"
+            and not any(
+                effect != "deny" for effect in server.tool_policies.values()
+            )
+        ):
             continue
         for name, effect in server.tool_policies.items():
             rule = f"mcp__{cli_server_name(server.name)}__{name}"

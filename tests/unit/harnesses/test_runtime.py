@@ -485,3 +485,32 @@ async def test_runtime_keeps_owning_clear_for_a_passthrough_backend(
     assert adapter.reset_session_id == "chat-1"
     assert adapter.prompt == ""
     assert output[-1].output[-1].metadata["clear_history"] is True
+
+
+async def test_closing_runtime_stream_closes_suspended_adapter(tmp_path):
+    class ClosingAdapter(FakeAdapter):
+        closed = False
+
+        async def run_turn(self, **kwargs):
+            try:
+                yield HarnessEvent(
+                    kind=HarnessEventKind.TEXT_DELTA, text="Pending",
+                )
+                yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
+            finally:
+                self.closed = True
+
+    runtime = HarnessRuntime(tmp_path)
+    adapter = ClosingAdapter()
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(session_id="chat-1", input=[
+        Message(role=Role.USER, content=[TextContent(text="Hi")]),
+    ])
+    stream = runtime.stream(
+        backend="codex", request=request, cwd=tmp_path.resolve(),
+    )
+    async for item in stream:
+        if item.object == "content":
+            break
+    await stream.aclose()
+    assert adapter.closed

@@ -309,6 +309,7 @@
     "console": "Console",
     "mailbox": "Mailbox Management",
     "tui": "Terminal UI",
+    "antigravity": "Antigravity",
     "multiAgent": "Multi-Agent",
     "import": "Import",
     "models": "Models",

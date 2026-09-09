@@ -920,6 +920,15 @@
       "reasoningDefault": "使用模型默认强度",
       "codexNotFound": "未检测到 Codex runtime。请安装 qwenpaw[codex]，或提供独立 Codex CLI。",
       "qoderNotFound": "未检测到 Qoder runtime。请安装 qwenpaw[qoder]，或提供 qodercli。",
+      "antigravityHint": "Antigravity CLI · 流式对话",
+      "antigravityAccount": "Antigravity 账户",
+      "antigravityBinary": "Antigravity 可执行文件",
+      "antigravityBinaryHelp": "留空通过 PATH 查找 agy。目前支持 Linux。",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "已检测到 Antigravity CLI",
+      "antigravityNotFound": "未找到 Antigravity CLI",
+      "antigravityAuthHint": "请以运行 QwenPaw 的系统用户交互式运行 agy 登录。仅支持文本，不支持交互审批。",
+      "authenticationUnknown": "认证状态未验证",
       "claudeHint": "本机认证或环境变量 · 智能体工作区",
       "claudeAccount": "Claude Code 账号",
       "claudeBinary": "Claude Code 可执行文件",
@@ -946,6 +955,7 @@
       "appliesNextTurn": "下一轮对话生效",
       "approvalMode": "执行权限",
       "approvalPresets": {
+        "configured": {"name": "CLI 当前配置", "description": "遵循 CLI 现有权限；需要审批的工具可能被拒绝。"},
         "ask": {
           "name": "变更前询问",
           "description": "允许修改工作区，执行越权操作前需要确认。"

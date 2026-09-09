@@ -27,7 +27,7 @@ import styles from "./AgentBackendFields.module.less";
 
 const POLL_INTERVAL_MS = 2_000;
 
-type ProviderId = "codex" | "qoder" | "claude";
+type ProviderId = "codex" | "qoder" | "claude" | "antigravity";
 
 interface ProviderOption {
   id: ProviderId;
@@ -45,6 +45,18 @@ interface ProviderOption {
 }
 
 const PROVIDERS: ProviderOption[] = [
+  {
+    id: "antigravity",
+    name: "Antigravity",
+    hintKey: "agent.backend.antigravityHint",
+    accountKey: "agent.backend.antigravityAccount",
+    binaryKey: "agent.backend.antigravityBinary",
+    binaryHelpKey: "agent.backend.antigravityBinaryHelp",
+    binaryPlaceholderKey: "agent.backend.antigravityBinaryPlaceholder",
+    detectedKey: "agent.backend.antigravityDetectedBinary",
+    notFoundKey: "agent.backend.antigravityNotFound",
+    authHintKey: "agent.backend.antigravityAuthHint",
+  },
   {
     id: "codex",
     name: "Codex",
@@ -92,7 +104,10 @@ interface AgentBackendFieldsProps {
 }
 
 function providerOption(backend: AgentBackend): ProviderOption {
-  return PROVIDERS.find((item) => item.id === backend) ?? PROVIDERS[0];
+  return (
+    PROVIDERS.find((item) => item.id === backend) ??
+    PROVIDERS.find((item) => item.id === "codex")!
+  );
 }
 
 export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
@@ -501,7 +516,9 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 ) : (
                   <span className={styles.disconnectedState}>
                     <CircleAlert size={14} />
-                    {provider?.installed
+                    {provider?.authentication_status === "unknown"
+                      ? t("agent.backend.authenticationUnknown")
+                      : provider?.installed
                       ? t("harnesses.notConnected")
                       : t(selectedProvider.notFoundKey)}
                   </span>
@@ -528,12 +545,22 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 )}
               </div>
             </div>
-            {!provider?.authenticated && provider?.installed && (
-              <p className={styles.authHint}>
-                {t(selectedProvider.authHintKey)}
+            {!provider?.authenticated &&
+              provider?.installed &&
+              !(
+                selectedProvider.id === "antigravity" &&
+                provider.authentication_status === "unknown"
+              ) && (
+                <p className={styles.authHint}>
+                  {t(selectedProvider.authHintKey)}
+                </p>
+              )}
+            {provider?.error && (
+              <p role="status" className={styles.authHint}>
+                {provider.error}
               </p>
             )}
-            {provider?.authenticated && (
+            {provider?.available && (
               <p className={styles.chatSettingsHint}>
                 {t("agent.backend.chatSettingsHint")}
               </p>

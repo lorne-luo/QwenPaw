@@ -382,6 +382,15 @@
       "reasoningDefault": "モデルのデフォルトを使用",
       "codexNotFound": "Codex runtime が見つかりません。qwenpaw[codex] をインストールするか、単独の Codex CLI を指定してください。",
       "qoderNotFound": "Qoder runtime が見つかりません。qwenpaw[qoder] をインストールするか、qodercli を指定してください。",
+      "antigravityHint": "Antigravity CLI · ストリーミング会話",
+      "antigravityAccount": "Antigravity アカウント",
+      "antigravityBinary": "Antigravity 実行ファイル",
+      "antigravityBinaryHelp": "空欄の場合は PATH から agy を検索します。Linux のみ対応。",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "Antigravity CLI を検出",
+      "antigravityNotFound": "Antigravity CLI が見つかりません",
+      "antigravityAuthHint": "QwenPaw の実行ユーザーで agy を対話実行してログインしてください。テキストのみ対応し、対話承認は利用できません。",
+      "authenticationUnknown": "認証状態は未確認",
       "claudeHint": "ホスト認証または環境変数 · エージェントワークスペース",
       "claudeAccount": "Claude Code アカウント",
       "claudeBinary": "Claude Code 実行ファイル",
@@ -408,6 +417,7 @@
       "appliesNextTurn": "次のターンから適用",
       "approvalMode": "実行権限",
       "approvalPresets": {
+        "configured": {"name": "CLI の設定", "description": "既存の CLI 権限を使用します。承認が必要なツールは拒否される場合があります。"},
         "ask": {
           "name": "変更前に確認",
           "description": "ワークスペースの変更を許可し、昇格操作の前に確認します。"

@@ -11,6 +11,17 @@ import zh from "./zh.json";
 const locales = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
 
 const requiredPaths = [
+  "agent.backend.antigravityHint",
+  "agent.backend.antigravityAccount",
+  "agent.backend.antigravityBinary",
+  "agent.backend.antigravityBinaryHelp",
+  "agent.backend.antigravityBinaryPlaceholder",
+  "agent.backend.antigravityDetectedBinary",
+  "agent.backend.antigravityNotFound",
+  "agent.backend.antigravityAuthHint",
+  "agent.backend.authenticationUnknown",
+  "agent.backend.approvalPresets.configured.name",
+  "agent.backend.approvalPresets.configured.description",
   "common.saving",
   "harnesses.connected",
   "harnesses.disconnected",

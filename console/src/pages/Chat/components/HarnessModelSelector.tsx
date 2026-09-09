@@ -34,12 +34,18 @@ export default function HarnessModelSelector({
     () => (catalog?.providerId === providerId ? catalog.models : []),
     [catalog, providerId],
   );
-  const modelId = agent?.backend_model ?? undefined;
+  const modelId =
+    agent?.backend_model ?? (providerId === "antigravity" ? "" : undefined);
   const model = useMemo(
     () => models.find((item) => item.id === modelId),
     [modelId, models],
   );
-  const effort = agent?.backend_reasoning_effort ?? undefined;
+  // Listed Antigravity model ids already name their level and the backend
+  // ignores a saved effort for them, so do not show it as applied.
+  const effort =
+    providerId === "antigravity" && !model?.reasoning_efforts.length
+      ? undefined
+      : agent?.backend_reasoning_effort ?? undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -76,11 +82,11 @@ export default function HarnessModelSelector({
         // present in the body, and JSON.stringify drops undefined -- an
         // omitted field would silently keep the old server-side value.
         await agentsApi.updateBackendSettings(selectedAgent, {
-          model: nextModel?.id ?? null,
+          model: nextModel?.id || null,
           reasoning_effort: nextEffort ?? null,
         });
         updateAgent(selectedAgent, {
-          backend_model: nextModel?.id ?? null,
+          backend_model: nextModel?.id || null,
           backend_reasoning_effort: nextEffort ?? null,
         });
       } catch (error) {
@@ -93,6 +99,7 @@ export default function HarnessModelSelector({
   );
 
   useEffect(() => {
+    if (providerId === "antigravity") return;
     if (!agent || modelId || loading || models.length === 0) return;
     const selectionKey = `${selectedAgent}:${providerId}`;
     if (autoSelectingRef.current === selectionKey) return;

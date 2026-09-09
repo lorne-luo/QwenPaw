@@ -89,3 +89,24 @@ def test_claude_approval_presets_match_the_cli_permission_modes() -> None:
         "auto",
         "bypassPermissions",
     ]
+
+
+def test_antigravity_declares_only_supported_capabilities() -> None:
+    provider = get_provider("antigravity")
+    assert provider.coming_soon is False
+    capabilities = provider.capabilities
+    assert capabilities.model_selection
+    assert capabilities.reasoning_effort
+    assert capabilities.tool_stream
+    assert capabilities.session_resume
+    assert not capabilities.authentication
+    assert not capabilities.attachments
+    assert not capabilities.reasoning_stream
+    assert not capabilities.passthrough_commands
+    assert not capabilities.qwenpaw_mcp_projection
+    assert not capabilities.qwenpaw_skills_projection
+    assert not capabilities.mcp_tool_allowlist
+    assert [p.settings for p in capabilities.approval_presets] == [
+        {"permission_mode": "configured"},
+        {"permission_mode": "full-access"},
+    ]

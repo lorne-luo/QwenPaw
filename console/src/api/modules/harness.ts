@@ -7,11 +7,13 @@ export interface HarnessProvider {
   coming_soon: boolean;
   installed: boolean;
   authenticated: boolean;
+  authentication_status?: "unknown" | "authenticated" | "unauthenticated" | null;
   account: {
     type?: string;
     username?: string | null;
     email?: string | null;
     planType?: string;
+    cli_version?: string;
   } | null;
   runtime_path: string | null;
   runtime_source: string | null;

@@ -514,3 +514,24 @@ async def test_closing_runtime_stream_closes_suspended_adapter(tmp_path):
             break
     await stream.aclose()
     assert adapter.closed
+
+
+async def test_non_projecting_backend_skips_capability_resolution(tmp_path):
+    from unittest.mock import AsyncMock
+
+    runtime = HarnessRuntime(tmp_path)
+    runtime._adapters["antigravity"] = FakeAdapter()
+    runtime._capability_resolver.resolve = AsyncMock(
+        side_effect=RuntimeError("Unrelated MCP configuration is broken"),
+    )
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[Message(role=Role.USER, content=[TextContent(text="Hello")])],
+    )
+    output = [
+        item async for item in runtime.stream(
+            backend="antigravity", request=request, cwd=tmp_path,
+        )
+    ]
+    assert output[-1].status == "completed"
+    runtime._capability_resolver.resolve.assert_not_awaited()

@@ -123,6 +123,80 @@ describe("AgentBackendFields", () => {
     expect(screen.getByText("Qoder")).toBeInTheDocument();
   });
 
+  it("offers Antigravity with honest authentication and capability status", async () => {
+    vi.mocked(harnessApi.status).mockResolvedValue({
+      ...mockProvider,
+      id: "antigravity",
+      name: "Antigravity",
+      authenticated: false,
+      authentication_status: "unknown",
+      account: null,
+      runtime_path: "/usr/local/bin/agy",
+      capabilities: {
+        ...mockProvider.capabilities,
+        authentication: false,
+        qwenpaw_skills_projection: false,
+        qwenpaw_mcp_projection: false,
+        mcp_tool_allowlist: false,
+      },
+    });
+    renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+    fireEvent.click(screen.getByText("Antigravity"));
+    expect(
+      await screen.findByText("agent.backend.authenticationUnknown"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agent.backend.antigravityAccount"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("agent.backend.account")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("agent.backend.antigravityAuthHint"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("harnesses.connect")).not.toBeInTheDocument();
+    expect(screen.getAllByText("agent.backend.notSupported")).toHaveLength(2);
+    expect(harnessApi.status).toHaveBeenLastCalledWith("antigravity", {});
+  });
+
+  it.each([true, false])(
+    "shows verified Antigravity login state: %s",
+    async (authenticated) => {
+      vi.mocked(harnessApi.status).mockResolvedValue({
+        ...mockProvider,
+        id: "antigravity",
+        name: "Antigravity",
+        account: { cli_version: "1.1.27" },
+        authenticated,
+        authentication_status: authenticated
+          ? "authenticated"
+          : "unauthenticated",
+      });
+      renderWithProviders(<BackendForm />);
+      fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+      fireEvent.click(screen.getByText("Antigravity"));
+      expect(
+        await screen.findByText(
+          authenticated
+            ? "Antigravity CLI authenticated"
+            : "harnesses.notConnected",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText("agent.backend.authenticationUnknown"),
+      ).not.toBeInTheDocument();
+      if (authenticated) {
+        expect(
+          screen.queryByText("agent.backend.antigravityAuthHint"),
+        ).not.toBeInTheDocument();
+      } else {
+        expect(
+          screen.getByText("agent.backend.antigravityAuthHint"),
+        ).toBeInTheDocument();
+      }
+      expect(screen.queryByText("harnesses.connect")).not.toBeInTheDocument();
+    },
+  );
+
   it("probes the executable path entered by the user", async () => {
     renderWithProviders(<BackendForm />);
     fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));

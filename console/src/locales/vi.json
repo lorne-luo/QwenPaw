@@ -1680,6 +1680,15 @@
       "reasoningDefault": "Dùng mặc định của mô hình",
       "codexNotFound": "Không tìm thấy runtime Codex. Hãy cài đặt qwenpaw[codex] hoặc cung cấp Codex CLI độc lập.",
       "qoderNotFound": "Không tìm thấy runtime Qoder. Hãy cài đặt qwenpaw[qoder] hoặc cung cấp qodercli.",
+      "antigravityHint": "Antigravity CLI · hội thoại trực tuyến",
+      "antigravityAccount": "Tài khoản Antigravity",
+      "antigravityBinary": "Tệp thực thi Antigravity",
+      "antigravityBinaryHelp": "Để trống để tìm agy trong PATH. Chỉ hỗ trợ Linux.",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "Đã tìm thấy Antigravity CLI",
+      "antigravityNotFound": "Không tìm thấy Antigravity CLI",
+      "antigravityAuthHint": "Chạy agy tương tác bằng người dùng dịch vụ QwenPaw để đăng nhập. Chỉ văn bản; không hỗ trợ phê duyệt tương tác.",
+      "authenticationUnknown": "Chưa xác minh đăng nhập",
       "claudeHint": "Xác thực trên máy chủ hoặc biến môi trường · Không gian làm việc của tác nhân",
       "claudeAccount": "Tài khoản Claude Code",
       "claudeBinary": "Tệp thực thi Claude Code",
@@ -1706,6 +1715,7 @@
       "appliesNextTurn": "Áp dụng từ lượt tiếp theo",
       "approvalMode": "Quyền thực thi",
       "approvalPresets": {
+        "configured": {"name": "Cấu hình CLI", "description": "Dùng quyền CLI hiện có; công cụ cần phê duyệt có thể bị từ chối."},
         "ask": {
           "name": "Hỏi trước khi thay đổi",
           "description": "Cho phép thay đổi không gian làm việc và hỏi trước các thao tác nâng quyền."

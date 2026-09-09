@@ -407,6 +407,15 @@
       "reasoningDefault": "Использовать значение модели по умолчанию",
       "codexNotFound": "Среда выполнения Codex не найдена. Установите qwenpaw[codex] или укажите отдельный Codex CLI.",
       "qoderNotFound": "Среда выполнения Qoder не найдена. Установите qwenpaw[qoder] или укажите qodercli.",
+      "antigravityHint": "Antigravity CLI · потоковый диалог",
+      "antigravityAccount": "Учётная запись Antigravity",
+      "antigravityBinary": "Исполняемый файл Antigravity",
+      "antigravityBinaryHelp": "Пустое поле: поиск agy в PATH. Только Linux.",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "Antigravity CLI обнаружен",
+      "antigravityNotFound": "Antigravity CLI не найден",
+      "antigravityAuthHint": "Запустите agy интерактивно от пользователя службы QwenPaw для входа. Только текст, без интерактивных подтверждений.",
+      "authenticationUnknown": "Авторизация не проверена",
       "claudeHint": "Аутентификация хоста или переменные окружения · Рабочая область агента",
       "claudeAccount": "Аккаунт Claude Code",
       "claudeBinary": "Исполняемый файл Claude Code",
@@ -433,6 +442,7 @@
       "appliesNextTurn": "Применяется со следующего хода",
       "approvalMode": "Разрешения на выполнение",
       "approvalPresets": {
+        "configured": {"name": "Настройки CLI", "description": "Использовать права CLI. Инструменты, требующие подтверждения, могут быть отклонены."},
         "ask": {
           "name": "Спрашивать перед изменениями",
           "description": "Разрешает изменения рабочей области и запрашивает подтверждение перед действиями с повышенными правами."

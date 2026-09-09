@@ -104,7 +104,13 @@ async def get_harness_models(
             "message": unavailable_message,
         }
     models = await adapter.models()
-    return {"models": [item.model_dump() for item in models]}
+    response: dict[str, Any] = {
+        "models": [item.model_dump() for item in models],
+    }
+    fallback_message = getattr(adapter, "models_fallback_message", None)
+    if fallback_message:
+        response["message"] = str(fallback_message)
+    return response
 
 
 @router.get("/{provider_id}/mcp")

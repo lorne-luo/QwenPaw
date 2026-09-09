@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -164,6 +164,9 @@ class HarnessProvider(BaseModel):
     coming_soon: bool = False
     installed: bool = False
     authenticated: bool = False
+    authentication_status: (
+        Literal["unknown", "authenticated", "unauthenticated"] | None
+    ) = None
     account: dict[str, Any] | None = None
     runtime_path: str | None = None
     runtime_source: str | None = None

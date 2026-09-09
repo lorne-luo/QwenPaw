@@ -1442,6 +1442,15 @@
       "reasoningDefault": "Gunakan default model",
       "codexNotFound": "Runtime Codex tidak ditemukan. Instal qwenpaw[codex] atau sediakan Codex CLI mandiri.",
       "qoderNotFound": "Runtime Qoder tidak ditemukan. Instal qwenpaw[qoder] atau sediakan qodercli.",
+      "antigravityHint": "Antigravity CLI · percakapan streaming",
+      "antigravityAccount": "Akun Antigravity",
+      "antigravityBinary": "Berkas eksekusi Antigravity",
+      "antigravityBinaryHelp": "Kosongkan untuk mencari agy di PATH. Hanya Linux.",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "Antigravity CLI ditemukan",
+      "antigravityNotFound": "Antigravity CLI tidak ditemukan",
+      "antigravityAuthHint": "Jalankan agy secara interaktif sebagai pengguna layanan QwenPaw untuk masuk. Hanya teks; persetujuan interaktif tidak tersedia.",
+      "authenticationUnknown": "Autentikasi belum diverifikasi",
       "claudeHint": "Autentikasi host atau variabel lingkungan · Ruang kerja agen",
       "claudeAccount": "Akun Claude Code",
       "claudeBinary": "Berkas eksekusi Claude Code",
@@ -1468,6 +1477,7 @@
       "appliesNextTurn": "Diterapkan pada giliran berikutnya",
       "approvalMode": "Izin eksekusi",
       "approvalPresets": {
+        "configured": {"name": "Konfigurasi CLI", "description": "Gunakan izin CLI yang ada; alat yang memerlukan persetujuan mungkin ditolak."},
         "ask": {
           "name": "Tanyakan sebelum perubahan",
           "description": "Izinkan perubahan ruang kerja dan tanyakan sebelum tindakan dengan hak akses lebih tinggi."

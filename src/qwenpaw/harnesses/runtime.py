@@ -137,9 +137,16 @@ class HarnessRuntime:
         """Run a harness turn and emit the established QwenPaw protocol."""
         settings = dict(settings or {})
         request_context = dict(settings.get("_request_context") or {})
-        settings[
-            "_runtime_capabilities"
-        ] = await self._capability_resolver.resolve(request_context)
+        capabilities = get_provider(backend).capabilities
+        if (
+            capabilities.qwenpaw_skills_projection
+            or capabilities.qwenpaw_mcp_projection
+        ):
+            settings[
+                "_runtime_capabilities"
+            ] = await self._capability_resolver.resolve(request_context)
+        else:
+            settings.pop("_runtime_capabilities", None)
         adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
         prompt, attachments = self._content_from_request(request)

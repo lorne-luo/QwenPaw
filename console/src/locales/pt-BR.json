@@ -747,6 +747,15 @@
       "reasoningDefault": "Usar o padrão do modelo",
       "codexNotFound": "O runtime do Codex não foi encontrado. Instale qwenpaw[codex] ou forneça um Codex CLI independente.",
       "qoderNotFound": "O runtime do Qoder não foi encontrado. Instale qwenpaw[qoder] ou forneça o qodercli.",
+      "antigravityHint": "Antigravity CLI · conversas em streaming",
+      "antigravityAccount": "Conta do Antigravity",
+      "antigravityBinary": "Executável do Antigravity",
+      "antigravityBinaryHelp": "Deixe vazio para buscar agy no PATH. Apenas Linux.",
+      "antigravityBinaryPlaceholder": "/usr/local/bin/agy",
+      "antigravityDetectedBinary": "Antigravity CLI detectado",
+      "antigravityNotFound": "Antigravity CLI não encontrado",
+      "antigravityAuthHint": "Execute agy interativamente como o usuário do serviço QwenPaw para entrar. Apenas texto; sem aprovações interativas.",
+      "authenticationUnknown": "Autenticação não verificada",
       "claudeHint": "Autenticação do host ou variáveis de ambiente · Espaço de trabalho do agente",
       "claudeAccount": "Conta do Claude Code",
       "claudeBinary": "Executável do Claude Code",
@@ -773,6 +782,7 @@
       "appliesNextTurn": "Aplicado no próximo turno",
       "approvalMode": "Permissões de execução",
       "approvalPresets": {
+        "configured": {"name": "Configuração da CLI", "description": "Usa as permissões existentes da CLI; ferramentas que exigem aprovação podem ser negadas."},
         "ask": {
           "name": "Perguntar antes de alterar",
           "description": "Permite alterações no workspace e solicita confirmação antes de ações elevadas."

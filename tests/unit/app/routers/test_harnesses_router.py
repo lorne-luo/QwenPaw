@@ -300,3 +300,34 @@ async def test_user_input_endpoint_rejects_unsupported_provider(
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "user_input_not_supported"
+
+
+@pytest.mark.asyncio
+async def test_get_harness_models_includes_fallback_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from qwenpaw.harnesses.events import HarnessModel
+
+    adapter = AsyncMock()
+    adapter.capability_unavailable_message = None
+    adapter.models_fallback_message = "agy models failed; run agy manually"
+    adapter.models.return_value = [
+        HarnessModel(id="", name="Antigravity default", is_default=True),
+    ]
+    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
+    config = SimpleNamespace(backend="antigravity", backend_settings={})
+    workspace = SimpleNamespace(config=config, harness_runtime=runtime)
+    monkeypatch.setattr(
+        harnesses,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+
+    response = await harnesses.get_harness_models(
+        "antigravity",
+        cast(Request, object()),
+    )
+
+    assert response["message"] == "agy models failed; run agy manually"
+    assert len(response["models"]) == 1
+    assert response["models"][0]["id"] == ""

@@ -28,6 +28,35 @@ class ProviderCatalogItem:
 
 PROVIDER_CATALOG = (
     ProviderCatalogItem(
+        "antigravity",
+        "Antigravity",
+        False,
+        HarnessCapabilities(
+            model_selection=True,
+            reasoning_effort=True,
+            tool_stream=True,
+            session_resume=True,
+            approval_presets=[
+                HarnessApprovalPreset(
+                    id="configured",
+                    name="CLI configuration",
+                    description=(
+                        "Use existing CLI permissions; no approval dialog."
+                    ),
+                    settings={"permission_mode": "configured"},
+                ),
+                HarnessApprovalPreset(
+                    id="full-access",
+                    name="Full access",
+                    description=(
+                        "Skip tool permission checks in a trusted workspace."
+                    ),
+                    settings={"permission_mode": "full-access"},
+                ),
+            ],
+        ),
+    ),
+    ProviderCatalogItem(
         "codex",
         "Codex",
         False,
@@ -289,7 +318,7 @@ def adapter_config_key(
 ) -> tuple[Any, ...]:
     """Return settings that require recreating one provider adapter."""
     values = settings or {}
-    if provider_id in {"codex", "qoder"}:
+    if provider_id in {"codex", "qoder", "antigravity"}:
         return (str(values.get("binary") or "").strip(),)
     if provider_id == "claude":
         from .claude.environment import agent_env, fingerprint
@@ -307,6 +336,11 @@ def create_adapter(
     settings: dict[str, Any] | None = None,
 ) -> HarnessAdapter:
     """Create one supported provider adapter."""
+    if provider_id == "antigravity":
+        from .antigravity.adapter import AntigravityAdapter
+
+        binary = str((settings or {}).get("binary") or "").strip() or None
+        return AntigravityAdapter(state_dir=state_dir, binary=binary)
     if provider_id == "codex":
         binary = str((settings or {}).get("binary") or "").strip() or None
         return CodexAdapter(state_dir=state_dir, binary=binary)

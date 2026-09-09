@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, screen } from "@testing-library/react";
 
 import { agentsApi } from "@/api/modules/agents";
 import { harnessApi } from "@/api/modules/harness";
@@ -70,6 +70,57 @@ describe("HarnessModelSelector", () => {
       name: "Codex Agent",
     });
   });
+
+  it("keeps Antigravity CLI default without saving a model on mount", async () => {
+    vi.mocked(harnessApi.listModels).mockResolvedValue({
+      models: [{ ...models[0], id: "", name: "CLI default", is_default: true }],
+    });
+    renderWithProviders(<HarnessModelSelector providerId="antigravity" />);
+    await screen.findByText("CLI default");
+    expect(agentsApi.updateBackendSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)", [], false],
+    ["", "Antigravity default", ["low", "medium", "high"], true],
+  ])(
+    "shows a saved Antigravity effort only where it applies (%s)",
+    async (id, name, efforts, shown) => {
+      // A listed Antigravity model id already names its level and the
+      // backend ignores the saved effort, so it must not look applied.
+      mockUseAgentStore.mockReturnValue({
+        selectedAgent: "agy-agent",
+        agents: [
+          {
+            id: "agy-agent",
+            backend: "antigravity",
+            backend_model: id || null,
+            backend_reasoning_effort: "high",
+          },
+        ],
+        updateAgent: mockUpdateAgent,
+      });
+      vi.mocked(harnessApi.listModels).mockResolvedValue({
+        models: [
+          {
+            id,
+            name,
+            description: "",
+            is_default: !id,
+            reasoning_efforts: efforts,
+            default_reasoning_effort: null,
+          },
+        ],
+      });
+
+      renderWithProviders(<HarnessModelSelector providerId="antigravity" />);
+      fireEvent.click(await screen.findByText(name));
+
+      await screen.findByText("agent.backend.reasoningEffort");
+      expect(screen.queryByText("high") !== null).toBe(shown);
+      expect(agentsApi.updateBackendSettings).not.toHaveBeenCalled();
+    },
+  );
 
   it("persists the backend default model on first load", async () => {
     renderWithProviders(<HarnessModelSelector providerId="codex" />);

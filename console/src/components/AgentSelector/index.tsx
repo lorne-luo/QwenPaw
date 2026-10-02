@@ -16,6 +16,8 @@ import {
   ChevronUp as SparkUpLine,
 } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
+import { useAgentSessionActivityStore } from "../../stores/agentSessionActivityStore";
+import { useAgentActivityMap } from "../../hooks/useAgentActivity";
 import { agentsApi } from "../../api/modules/agents";
 import type { AgentSummary } from "../../api/types/agents";
 import { useTranslation } from "react-i18next";
@@ -51,6 +53,16 @@ export default function AgentSelector({
   const [disabledExpanded, setDisabledExpanded] = useState(false);
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [pinningAgentId, setPinningAgentId] = useState<string | null>(null);
+  const activityByAgent = useAgentActivityMap();
+  const refreshActivity = useAgentSessionActivityStore(
+    (state) => state.refresh,
+  );
+
+  // The list renders immediately; activity arrives later and updates in place.
+  const handleOpenChange = (open: boolean) => {
+    setDropdownOpen(open);
+    if (open) void refreshActivity();
+  };
 
   const loadAgents = useCallback(
     async (showLoading = true, reportError = true) => {
@@ -285,6 +297,7 @@ export default function AgentSelector({
           <AgentStatusIndicator
             status={agent.startup_status}
             enabled={agent.enabled}
+            activity={activityByAgent[agent.id]}
           />
         </div>
         <div className={styles.agentOptionIcon}>
@@ -337,7 +350,7 @@ export default function AgentSelector({
     return (
       <Popover
         open={dropdownOpen}
-        onOpenChange={setDropdownOpen}
+        onOpenChange={handleOpenChange}
         placement="rightTop"
         trigger="click"
         overlayClassName={styles.collapsedAgentPopover}
@@ -467,6 +480,7 @@ export default function AgentSelector({
                 <AgentStatusIndicator
                   status={currentAgentInfo.startup_status}
                   enabled={currentAgentInfo.enabled}
+                  activity={activityByAgent[currentAgentInfo.id]}
                 />
               </span>
             )}
@@ -504,7 +518,7 @@ export default function AgentSelector({
         optionLabelProp="label"
         virtual={false}
         popupClassName={styles.agentSelectorDropdown}
-        onOpenChange={setDropdownOpen}
+        onOpenChange={handleOpenChange}
         suffixIcon={
           dropdownOpen ? <SparkUpLine size={20} /> : <SparkDownLine size={20} />
         }
@@ -581,6 +595,7 @@ export default function AgentSelector({
                   <AgentStatusIndicator
                     status={agent.startup_status}
                     enabled={agent.enabled}
+                    activity={activityByAgent[agent.id]}
                   />
                   <Bot size={14} strokeWidth={2} />
                   <span>{getAgentDisplayName(agent, t)}</span>
@@ -602,6 +617,7 @@ export default function AgentSelector({
                     <AgentStatusIndicator
                       status={agent.startup_status}
                       enabled={agent.enabled}
+                      activity={activityByAgent[agent.id]}
                     />
                     <Bot size={14} strokeWidth={2} />
                     <span>{getAgentDisplayName(agent, t)}</span>

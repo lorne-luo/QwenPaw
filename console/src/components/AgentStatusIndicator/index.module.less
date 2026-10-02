@@ -17,8 +17,20 @@
   animation: statusPulse 1.2s ease-in-out infinite;
 }
 
-.running {
-  background: #35a66f;
+.runningIdle {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Session activity, same visuals as the SessionItem running / unseen dots. */
+.generating {
+  background: #00a5fb;
+  animation: statusBreathe 1.5s ease-in-out infinite;
+}
+
+.unseen {
+  background: #52c41a;
+  box-shadow: 0 0 5px 1px rgba(82, 196, 26, 0.25);
 }
 
 .failed {
@@ -38,9 +50,21 @@
   }
 }
 
+@keyframes statusBreathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pending,
-  .starting {
+  .starting,
+  .generating {
     animation: none;
   }
 }

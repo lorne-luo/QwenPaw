@@ -3,6 +3,9 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import AgentSelector from "./index";
+import { useAgentSessionActivityStore } from "@/stores/agentSessionActivityStore";
+import { useSessionAttentionStore } from "@/stores/sessionAttentionStore";
+import { useSessionListStore } from "@/stores/sessionListStore";
 
 const mocks = vi.hoisted(() => ({
   setSelectedAgent: vi.fn(),
@@ -10,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   refreshAgents: vi.fn(),
   toggleAgentEnabled: vi.fn(),
   setAgentPinned: vi.fn(),
+  getSessionActivity: vi.fn(),
   navigate: vi.fn(),
   storeState: {
     selectedAgent: "default",
@@ -21,17 +25,28 @@ vi.mock("@/api/modules/agents", () => ({
   agentsApi: {
     toggleAgentEnabled: mocks.toggleAgentEnabled,
     setAgentPinned: mocks.setAgentPinned,
+    getSessionActivity: mocks.getSessionActivity,
   },
 }));
 
-vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
+vi.mock("@/stores/agentStore", () => {
+  const getState = () => ({
     ...mocks.storeState,
     setSelectedAgent: mocks.setSelectedAgent,
     setAgents: mocks.setAgents,
     refreshAgents: mocks.refreshAgents,
-  })),
-}));
+  });
+  const useAgentStore = vi.fn(
+    (selector?: (state: ReturnType<typeof getState>) => unknown) =>
+      selector ? selector(getState()) : getState(),
+  );
+  return {
+    useAgentStore: Object.assign(useAgentStore, {
+      getState,
+      subscribe: () => () => {},
+    }),
+  };
+});
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -77,6 +92,14 @@ describe("AgentSelector", () => {
     mocks.storeState.selectedAgent = "default";
     mocks.storeState.agents = agents;
     mocks.refreshAgents.mockResolvedValue(undefined);
+    mocks.getSessionActivity.mockResolvedValue({ agents: [] });
+    localStorage.clear();
+    useSessionListStore.setState({ sessions: [] });
+    useAgentSessionActivityStore.setState({ sessionsByAgent: {} });
+    useSessionAttentionStore.setState({
+      seenFinishedAt: {},
+      baselinedAgents: {},
+    });
     mocks.toggleAgentEnabled.mockResolvedValue({
       success: true,
       agent_id: "agent-2",
@@ -257,5 +280,100 @@ describe("AgentSelector", () => {
       expect(mocks.toggleAgentEnabled).toHaveBeenCalledWith("agent-1", false);
     });
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("default");
+  });
+
+  describe("session activity", () => {
+    const FINISHED = "2026-10-03T08:00:00.000Z";
+    const runningAgent = (id: string, name: string) => ({
+      id,
+      name,
+      enabled: true,
+      description: "",
+      workspace_dir: "",
+      startup_status: "running",
+      pinned: false,
+    });
+    const activityAgents = [
+      { ...runningAgent("default", "Default"), pinned: true },
+      runningAgent("agent-a", "Agent A"),
+      runningAgent("agent-b", "Agent B"),
+      runningAgent("agent-c", "Agent C"),
+    ];
+
+    function rowIndicator(name: string) {
+      const row = screen
+        .getAllByText(name)
+        .map((element) => element.closest(".ant-select-item-option"))
+        .find(Boolean);
+      return row?.querySelector('[role="status"]');
+    }
+
+    it("refreshes on open and colors other agents from their own sessions", async () => {
+      mocks.storeState.selectedAgent = "agent-c";
+      mocks.storeState.agents = activityAgents;
+      useSessionAttentionStore.setState({
+        baselinedAgents: { "agent-b": true },
+      });
+      let resolveActivity!: (value: unknown) => void;
+      mocks.getSessionActivity.mockReturnValue(
+        new Promise((resolve) => {
+          resolveActivity = resolve;
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<AgentSelector />);
+
+      await user.click(screen.getByRole("combobox"));
+
+      // The list is usable before the activity request resolves.
+      expect(mocks.getSessionActivity).toHaveBeenCalledOnce();
+      expect(rowIndicator("Agent A")).toHaveAttribute("data-activity", "none");
+      expect(rowIndicator("Agent B")).toHaveAttribute("data-activity", "none");
+
+      resolveActivity({
+        agents: [
+          { agent_id: "agent-a", sessions: [{ id: "a1", status: "running" }] },
+          {
+            agent_id: "agent-b",
+            sessions: [
+              { id: "b1", status: "idle", last_finished_at: FINISHED },
+            ],
+          },
+          // The selected agent follows the sidebar list, not this response.
+          { agent_id: "agent-c", sessions: [{ id: "c1", status: "running" }] },
+        ],
+      });
+
+      await waitFor(() =>
+        expect(rowIndicator("Agent A")).toHaveAttribute(
+          "data-activity",
+          "generating",
+        ),
+      );
+      expect(rowIndicator("Agent B")).toHaveAttribute(
+        "data-activity",
+        "unseen",
+      );
+      expect(rowIndicator("Agent C")).toHaveAttribute("data-activity", "none");
+      expect(mocks.getSessionActivity).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the collapsed list usable when the activity request fails", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.getSessionActivity.mockRejectedValue(new Error("offline"));
+      const user = userEvent.setup();
+      renderWithProviders(<AgentSelector collapsed />);
+
+      await user.click(
+        screen.getByRole("button", { name: "agent.selectAgent" }),
+      );
+      expect(mocks.getSessionActivity).toHaveBeenCalledOnce();
+      await user.click(
+        await screen.findByRole("option", { name: /Agent One/ }),
+      );
+
+      expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+      vi.mocked(console.warn).mockRestore();
+    });
   });
 });

@@ -11,9 +11,19 @@ export interface AttentionSession {
 
 interface SessionAttentionState {
   seenFinishedAt: Record<string, string | null>;
+  /** Agents whose existing completions were already taken as the baseline. */
+  baselinedAgents: Record<string, true>;
   initializeSessions: (agentId: string, sessions: AttentionSession[]) => void;
+  initializeAgentSessions: (
+    sessionsByAgent: Record<string, AttentionSession[]>,
+  ) => void;
   markSeen: (agentId: string, session: AttentionSession) => void;
 }
+
+type AttentionMarkers = Pick<
+  SessionAttentionState,
+  "seenFinishedAt" | "baselinedAgents"
+>;
 
 export function sessionAttentionKey(
   agentId: string,
@@ -41,25 +51,56 @@ export function hasUnseenCompletion(
   );
 }
 
+/**
+ * Adds read markers for sessions observed for the first time. Returns the
+ * input object unchanged when nothing new was observed.
+ */
+function applyObservation(
+  markers: AttentionMarkers,
+  agentId: string,
+  sessions: AttentionSession[],
+): AttentionMarkers {
+  const baselined = Object.prototype.hasOwnProperty.call(
+    markers.baselinedAgents,
+    agentId,
+  );
+  let seenFinishedAt = markers.seenFinishedAt;
+  for (const session of sessions) {
+    const key = sessionAttentionKey(agentId, session);
+    if (Object.prototype.hasOwnProperty.call(seenFinishedAt, key)) continue;
+    if (seenFinishedAt === markers.seenFinishedAt) {
+      seenFinishedAt = { ...seenFinishedAt };
+    }
+    // The first observation of an agent takes existing completions as the
+    // baseline, so an upgrade does not mark all history unread. Afterwards a
+    // session that shows up already finished is a new, unseen result.
+    seenFinishedAt[key] = baselined ? null : session.lastFinishedAt ?? null;
+  }
+  if (baselined && seenFinishedAt === markers.seenFinishedAt) return markers;
+  return {
+    seenFinishedAt,
+    baselinedAgents: baselined
+      ? markers.baselinedAgents
+      : { ...markers.baselinedAgents, [agentId]: true },
+  };
+}
+
 export const useSessionAttentionStore = create<SessionAttentionState>()(
   persist(
     (set) => ({
       seenFinishedAt: {},
+      baselinedAgents: {},
 
       initializeSessions: (agentId, sessions) =>
+        set((state) => applyObservation(state, agentId, sessions)),
+
+      initializeAgentSessions: (sessionsByAgent) =>
         set((state) => {
-          let changed = false;
-          const next = { ...state.seenFinishedAt };
-          for (const session of sessions) {
-            const key = sessionAttentionKey(agentId, session);
-            if (!Object.prototype.hasOwnProperty.call(next, key)) {
-              // Existing completions are the baseline when this feature first
-              // sees a session, so an upgrade does not mark all history unread.
-              next[key] = session.lastFinishedAt ?? null;
-              changed = true;
-            }
+          let next: AttentionMarkers = state;
+          for (const [agentId, sessions] of Object.entries(sessionsByAgent)) {
+            next = applyObservation(next, agentId, sessions);
           }
-          return changed ? { seenFinishedAt: next } : state;
+          return next;
         }),
 
       markSeen: (agentId, session) => {
@@ -79,7 +120,10 @@ export const useSessionAttentionStore = create<SessionAttentionState>()(
     }),
     {
       name: STORAGE_KEY,
-      partialize: (state) => ({ seenFinishedAt: state.seenFinishedAt }),
+      partialize: (state) => ({
+        seenFinishedAt: state.seenFinishedAt,
+        baselinedAgents: state.baselinedAgents,
+      }),
     },
   ),
 );

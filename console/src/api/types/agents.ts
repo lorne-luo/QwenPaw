@@ -3,6 +3,7 @@ import type { ThinkingLevel } from "@/features/thinking/types";
 
 import type { ModelSlotConfig } from "./provider";
 import type { HarnessCapabilities } from "../modules/harness";
+import type { ChatStatus } from "./chat";
 
 export type AgentStartupStatus =
   | "disabled"
@@ -39,6 +40,25 @@ export interface AgentListResponse {
 export interface ReorderAgentsResponse {
   success: boolean;
   agent_ids: string[];
+}
+
+export interface AgentSessionActivityItem {
+  /** Backend chat id (the sidebar session's realId). */
+  id: string;
+  status: ChatStatus;
+  /** False for cron, subagent and inter-agent chats (never color the agent). */
+  counted: boolean;
+  last_finished_at?: string | null;
+}
+
+export interface AgentSessionActivity {
+  agent_id: string;
+  sessions: AgentSessionActivityItem[];
+}
+
+/** Main-list sessions of enabled, already-loaded agents. */
+export interface AgentSessionActivityResponse {
+  agents: AgentSessionActivity[];
 }
 
 export interface AgentMailCredential {

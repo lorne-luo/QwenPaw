@@ -253,6 +253,7 @@
 
 /* Chat messages scrollable area */
 .chatMessagesArea {
+  position: relative;
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -320,6 +321,35 @@
   /* Firefox scrollbar */
   scrollbar-width: thin;
   scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
+
+/* Revive freeze frame: a static copy of the conversation covering the chat
+ * while its runtime remounts. Opaque, above the runtime's own layers (max
+ * z-index 12), and it absorbs taps so none reach the runtime underneath. */
+.reviveFreeze {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  background: var(--app-bg);
+  pointer-events: auto;
+
+  &:empty {
+    display: none;
+  }
+
+  /* A static copy must not replay the runtime's enter animations (the
+   * message list fades in from opacity 0) or animate style changes. */
+  & * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* A runtime remounted by a revive replaces a fully visible copy of the
+ * conversation, so its message list must not fade in from blank. */
+.chatMessagesArea.revived :global([class*="-bubble-list-wrapper"]) {
+  animation: none;
 }
 
 .headerSpacer {

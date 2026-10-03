@@ -144,7 +144,12 @@ import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { useStreamRevive } from "./hooks/useStreamRevive";
 import { useLoadingWatchdog } from "./hooks/useLoadingWatchdog";
-import { prepareSessionRevive } from "./sessionRevive";
+import {
+  isReviveUnchanged,
+  isRevivedViewReady,
+  prepareSessionRevive,
+} from "./sessionRevive";
+import { holdView } from "./reviveFreezeFrame";
 import {
   createHeadlineFilterState,
   filterHeadlineDelta,
@@ -1533,6 +1538,8 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  // The mounted runtime replaced a held copy of the conversation (revive).
+  const [runtimeRevived, setRuntimeRevived] = useState(false);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
@@ -2412,6 +2419,9 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const reviveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const reviveFreezeHostRef = useRef<HTMLDivElement>(null);
+  const holdReleaseRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => holdReleaseRef.current?.(), []);
 
   const reviveStream = useCallback(() => {
     if (reviveInFlightRef.current) return;
@@ -2426,10 +2436,44 @@ export default function ChatPage() {
       preload: (id) =>
         sessionApi.preloadSession(id, undefined, true, isCurrent),
       isCurrent,
-      remount: () => {
+      // Nothing changed while away: keep scroll, expanded tool calls and the
+      // composer. Live turns have no persisted identity, so they remount.
+      isUnchanged: ({ session }) =>
+        isReviveUnchanged({
+          streaming: Boolean(chatLoadingRef.current),
+          shown: chatRef.current?.messages.getMessages() ?? [],
+          fresh: session,
+        }),
+      remount: ({ session }) => {
+        // Keep the conversation on screen until the new runtime has painted
+        // its history; a fresh runtime starts empty and re-lists sessions.
+        holdReleaseRef.current?.();
+        const host = reviveFreezeHostRef.current;
+        if (host?.parentElement && (session.messages?.length ?? 0) > 0) {
+          const previous = chatRef.current;
+          holdReleaseRef.current = holdView({
+            host,
+            sources: Array.from(host.parentElement.children).filter(
+              (el): el is HTMLElement =>
+                el !== host && el instanceof HTMLElement,
+            ),
+            isReady: () => {
+              const handle = chatRef.current;
+              return (
+                !!handle &&
+                handle !== previous &&
+                isRevivedViewReady(
+                  handle.messages.getMessages(),
+                  Boolean(session.generating),
+                )
+              );
+            },
+          });
+        }
         // Clearing lastSessionIdRef restores the first-load condition, so
         // the runtime cannot navigate to its newest session during remount.
         lastSessionIdRef.current = null;
+        setRuntimeRevived(true);
         setRefreshKey((prev) => prev + 1);
       },
     });
@@ -2636,7 +2680,14 @@ export default function ChatPage() {
       clearSenderAttachments();
       return true;
     },
-    [queueKey, queueSessionId, selectedAgent, captureRequestContext, t, message],
+    [
+      queueKey,
+      queueSessionId,
+      selectedAgent,
+      captureRequestContext,
+      t,
+      message,
+    ],
   );
 
   // Intercept Enter to enqueue:
@@ -3275,6 +3326,8 @@ export default function ChatPage() {
         lastSessionIdRef.current || routeChatId || null;
       lastSessionIdRef.current = null;
 
+      holdReleaseRef.current?.();
+      setRuntimeRevived(false);
       setRefreshKey((prev) => prev + 1);
     }
     // Do not commit this ref yet. Persisting the previous Agent's Chat can
@@ -4249,54 +4302,60 @@ export default function ChatPage() {
             >
               {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
                 <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+              {usesQwenPawBackend && (
+                <SessionProjectDirectory
+                  scope={sessionScope}
+                  compact={isMobile || compactSender}
+                  className={[
+                    !isMobile && !compactSender
+                      ? styles.senderProjectControl
+                      : "",
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 />
-              </span>
-            )}
-            {usesQwenPawBackend && (
-              <SessionProjectDirectory
-                scope={sessionScope}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderProjectControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
-            )}
-            {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
-            ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
-                backend={selectedAgentBackend}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
-            ) : null}
+              )}
+              {usesQwenPawBackend ? (
+                <ApprovalLevelToggle
+                  sessionId={queueKey}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  compact={isMobile || compactSender}
+                  className={[
+                    !isMobile && !compactSender
+                      ? styles.senderApprovalControl
+                      : "",
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+              ) : approvalPresets.length > 0 ? (
+                <HarnessApprovalToggle
+                  backend={selectedAgentBackend}
+                  presets={approvalPresets}
+                  className={
+                    isMobile ? styles.mobileComposerControl : undefined
+                  }
+                  compact={isMobile}
+                  onChange={(settings) => {
+                    backendControlsRef.current = settings;
+                  }}
+                />
+              ) : null}
 
               {queueSendActive && (
                 <Tooltip title={t("chat.queue.addToQueue")}>
@@ -4738,11 +4797,13 @@ export default function ChatPage() {
         <div className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
-            className={
-              isWideMode
-                ? `${styles.chatMessagesArea} ${styles.wideMode}`
-                : styles.chatMessagesArea
-            }
+            className={[
+              styles.chatMessagesArea,
+              isWideMode && styles.wideMode,
+              runtimeRevived && styles.revived,
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             <LongTextPasteProvider
               enabled={supportsAttachments}
@@ -4767,6 +4828,8 @@ export default function ChatPage() {
                 )}
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
+            {/* Filled imperatively by holdView while a revive remounts. */}
+            <div ref={reviveFreezeHostRef} className={styles.reviveFreeze} />
           </div>
 
           {/* Rate-limit guidance banner */}

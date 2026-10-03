@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import api, { type ChatHistory, type ChatSpec } from "../../../api";
 import sessionApi from "../sessionApi";
-import { prepareSessionRevive } from "../sessionRevive";
+import { isReviveUnchanged, prepareSessionRevive } from "../sessionRevive";
 import { useTurnUsageStore } from "../turnUsageStore";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -82,5 +82,48 @@ describe("session revival ownership", () => {
     });
     expect(result).toBe(true);
     expect(remount).toHaveBeenCalledOnce();
+  });
+
+  it("recognises an unchanged chat across reads with regenerated ids", async () => {
+    // Each read of the history API regenerates every message id; only
+    // metadata.original_id (the stored memory id) is stable.
+    let read = 0;
+    const turn = (originalIds: string[], status = "idle") => {
+      read += 1;
+      return {
+        status,
+        messages: [
+          ["user", "m-user"],
+          ...originalIds.map((originalId) => ["assistant", originalId]),
+        ].map(([role, originalId], index) => ({
+          id: `read${read}-${index}`,
+          role,
+          type: "message",
+          content: [{ type: "text", text: originalId }],
+          metadata: { original_id: originalId },
+        })),
+      } as unknown as ChatHistory;
+    };
+    const getChat = vi.spyOn(api, "getChat");
+    const load = async (history: ChatHistory) => {
+      getChat.mockResolvedValueOnce(history);
+      return (await sessionApi.preloadSession(A, undefined, true)).session;
+    };
+
+    const shown = (await load(turn(["m-a1", "m-a2"]))).messages;
+    const same = await load(turn(["m-a1", "m-a2"]));
+    const grown = await load(turn(["m-a1", "m-a2", "m-a3"]));
+    const running = await load(turn(["m-a1", "m-a2"], "running"));
+
+    expect(same.messages[0].id).not.toBe(shown[0].id);
+    expect(isReviveUnchanged({ streaming: false, shown, fresh: same })).toBe(
+      true,
+    );
+    expect(isReviveUnchanged({ streaming: false, shown, fresh: grown })).toBe(
+      false,
+    );
+    expect(isReviveUnchanged({ streaming: false, shown, fresh: running })).toBe(
+      false,
+    );
   });
 });

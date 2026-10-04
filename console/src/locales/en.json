@@ -4252,7 +4252,7 @@
       "groupBySource": "By source",
       "groupByNone": "No grouping"
     },
-    "conversationHistory": "Conversation History",
+    "agentChats": "{{name}} Chats",
     "history": {
       "empty": "No chat history"
     },

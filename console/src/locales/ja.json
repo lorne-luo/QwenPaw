@@ -3451,7 +3451,7 @@
       "groupBySource": "ソース順",
       "groupByNone": "グループなし"
     },
-    "conversationHistory": "会話履歴",
+    "agentChats": "{{name}}のチャット",
     "history": {
       "empty": "チャット履歴なし"
     },

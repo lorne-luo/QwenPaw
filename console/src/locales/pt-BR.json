@@ -3710,7 +3710,7 @@
       "groupBySource": "Por origem",
       "groupByNone": "Sem agrupamento"
     },
-    "conversationHistory": "Histórico de conversas",
+    "agentChats": "Conversas de {{name}}",
     "history": {
       "empty": "Sem histórico de conversas"
     },

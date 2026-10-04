@@ -31,7 +31,16 @@ const mockListProps = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (
+      key: string,
+      fallback?: string | { defaultValue?: string; name?: string },
+    ) =>
+      typeof fallback === "object"
+        ? (fallback.defaultValue ?? key).replace(
+            "{{name}}",
+            fallback.name ?? "",
+          )
+        : fallback ?? key,
     i18n: { language: "en" },
   }),
 }));
@@ -192,12 +201,16 @@ vi.mock("../hooks/useAppMessage", () => ({
   }),
 }));
 
-vi.mock("../stores/agentStore", () => ({
-  useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
-    selector
-      ? selector({ selectedAgent: mockSelectedAgent.current })
-      : { selectedAgent: mockSelectedAgent.current },
-}));
+vi.mock("../stores/agentStore", () => {
+  const state = () => ({
+    selectedAgent: mockSelectedAgent.current,
+    agents: [{ id: "agent-1", name: "Research Bot" }],
+  });
+  return {
+    useAgentStore: (selector?: (s: ReturnType<typeof state>) => unknown) =>
+      selector ? selector(state()) : state(),
+  };
+});
 
 vi.mock("../stores/sessionListStore", () => ({
   useSessionListStore: (selector?: (s: { sessions: unknown[] }) => unknown) =>
@@ -613,12 +626,12 @@ describe("SidebarSessionList", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
   });
 
-  it("collapses and expands the conversation history section", async () => {
+  it("collapses and expands the agent chats section", async () => {
     mockData([sessionA]);
     renderWithProviders(<SidebarSessionList />);
     const historyBtn = screen
       .getAllByRole("button")
-      .find((b) => b.textContent?.includes("Conversation History"));
+      .find((b) => b.textContent?.includes("Research Bot Chats"));
     expect(historyBtn).toBeTruthy();
     fireEvent.click(historyBtn!);
     // Collapsed: search input disappears

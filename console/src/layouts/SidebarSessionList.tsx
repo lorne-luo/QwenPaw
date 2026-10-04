@@ -62,6 +62,7 @@ import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
 import { useSessionAttention } from "../hooks/useSessionAttention";
 import { useAgentStore } from "../stores/agentStore";
+import { getAgentDisplayName } from "../utils/agentDisplayName";
 import styles from "./sidebarSessionList.module.less";
 
 /**
@@ -278,6 +279,14 @@ export default function SidebarSessionList({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const agents = useAgentStore((state) => state.agents);
+  const agentName = getAgentDisplayName(
+    agents.find((agent) => agent.id === selectedAgent) ?? {
+      id: selectedAgent,
+      name: "",
+    },
+    t,
+  );
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
@@ -846,7 +855,10 @@ export default function SidebarSessionList({
             onClick={() => setHistoryCollapsed((c) => !c)}
           >
             <span className={styles.historyLabel}>
-              {t("chat.conversationHistory", "Conversation History")}
+              {t("chat.agentChats", {
+                name: agentName,
+                defaultValue: "{{name}} Chats",
+              })}
             </span>
             <span
               className={styles.historyChevron}

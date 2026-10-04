@@ -1295,7 +1295,7 @@
       "searchConversations": "Cari…",
       "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan",
+    "agentChats": "Percakapan {{name}}",
     "history": {
       "empty": "Tidak ada riwayat obrolan"
     },

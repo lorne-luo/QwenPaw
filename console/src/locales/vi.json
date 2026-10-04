@@ -1278,7 +1278,7 @@
       "searchConversations": "Tìm kiếm…",
       "noConversations": "Không có hội thoại"
     },
-    "conversationHistory": "Lịch sử hội thoại",
+    "agentChats": "Trò chuyện với {{name}}",
     "history": {
       "empty": "Không có lịch sử trò chuyện"
     },

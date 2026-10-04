@@ -3466,7 +3466,7 @@
       "groupBySource": "По источнику",
       "groupByNone": "Без группировки"
     },
-    "conversationHistory": "История диалогов",
+    "agentChats": "Чаты {{name}}",
     "history": {
       "empty": "Нет истории чатов"
     },

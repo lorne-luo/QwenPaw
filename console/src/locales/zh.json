@@ -4111,7 +4111,7 @@
       "groupBySource": "按来源",
       "groupByNone": "不分组"
     },
-    "conversationHistory": "历史对话",
+    "agentChats": "{{name}}聊天",
     "history": {
       "empty": "暂无聊天记录"
     },

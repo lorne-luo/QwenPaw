@@ -223,6 +223,13 @@
   display: none;
 }
 
+/* A composer submit is still waiting on its admission check: grey out the send
+   button so a slow network cannot invite a second press. */
+.submitPending :global(div[class*="-sender-actions-list-presets"]) {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
 @media (max-width: 1024px) {
   .filesPreviewOpen,
   .filesWorkspaceOpen {

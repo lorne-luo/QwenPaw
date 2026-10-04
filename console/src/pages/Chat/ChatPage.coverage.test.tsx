@@ -1477,6 +1477,73 @@ describe("ChatPage coverage", () => {
     act(() => useMessageQueueStore.getState().clear(chatId));
   });
 
+  it("drops a repeat submit while the first is still being admitted", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222222";
+    let resolveStatus: (value: { status: "idle" }) => void = () => {};
+    mockGetChatStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const { container } = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+    const root = () =>
+      container.querySelector('[class*="chatPageRoot"]') as HTMLElement;
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const first = beforeSubmit({ query: "same text" });
+    await waitFor(() => expect(mockGetChatStatus).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(root().className).toContain("submitPending"));
+
+    // A slow network leaves the text in the composer, so the repeat click
+    // carries the same query. It must be dropped, not queued behind the first.
+    await expect(beforeSubmit({ query: "same text" })).resolves.toBe(false);
+
+    resolveStatus({ status: "idle" });
+    let result: unknown;
+    await act(async () => {
+      result = await first;
+    });
+
+    expect(result).toMatchObject({ proceed: true, query: "same text" });
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(1);
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+    expect(root().className).not.toContain("submitPending");
+  });
+
+  it("accepts the next submit once a timed-out status check fails", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222226";
+    mockGetChatStatus.mockRejectedValueOnce(
+      new Error("Request timeout after 30000ms"),
+    );
+    const { container } = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    let first: unknown;
+    await act(async () => {
+      first = await capturedOptions.sender.beforeSubmit({ query: "first" });
+    });
+    expect(first).toMatchObject({ proceed: true, query: "first" });
+    expect(
+      (container.querySelector('[class*="chatPageRoot"]') as HTMLElement)
+        .className,
+    ).not.toContain("submitPending");
+
+    // The failed status check released the guard, so the next message is
+    // admitted on its own rather than dropped as a repeat.
+    let second: unknown;
+    await act(async () => {
+      second = await capturedOptions.sender.beforeSubmit({ query: "second" });
+    });
+    expect(second).toMatchObject({ proceed: true, query: "second" });
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+  });
+
   it("allows a fresh SDK admission after switching sessions", async () => {
     const sourceChatId = "33322222-2222-4222-8222-222222222224";
     const targetChatId = "33322222-2222-4222-8222-222222222225";

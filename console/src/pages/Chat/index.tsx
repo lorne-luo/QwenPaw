@@ -1570,6 +1570,11 @@ export default function ChatPage() {
   messageQueueRef.current = messageQueue;
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
+  /** Set from a composer submit until its admission settles. Repeat clicks in
+   *  that window are dropped and the send button is greyed out, so a slow
+   *  status check cannot turn one message into several. */
+  const submitInFlightRef = useRef(false);
+  const [submitInFlight, setSubmitInFlight] = useState(false);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
   const backendControlsRef = useRef<Record<string, unknown>>({});
@@ -3795,7 +3800,7 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async (
+    const admitSubmission = async (
       data: IAgentScopeRuntimeWebUIInputData,
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (
@@ -3917,6 +3922,24 @@ export default function ChatPage() {
         ),
         biz_params: data.biz_params,
       };
+    };
+
+    // The SDK keeps the text in the composer while beforeSubmit awaits the
+    // backend status check, so on a slow network a second click re-submits the
+    // same text and it lands in the queue as a duplicate. Drop repeat submits
+    // until this one settles; the status request's own timeout bounds the wait.
+    const handleBeforeSubmit = async (
+      inputData: IAgentScopeRuntimeWebUIInputData,
+    ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
+      if (submitInFlightRef.current) return false;
+      submitInFlightRef.current = true;
+      setSubmitInFlight(true);
+      try {
+        return await admitSubmission(inputData);
+      } finally {
+        submitInFlightRef.current = false;
+        setSubmitInFlight(false);
+      }
     };
 
     // ── Resolve plugin extension snapshots ────────────────────────────────
@@ -4790,7 +4813,9 @@ export default function ChatPage() {
       setOpen={setTerminalOpen}
     >
       <div
-        className={`${styles.chatPageRoot} ${filesDrawerClass}`}
+        className={`${styles.chatPageRoot} ${filesDrawerClass} ${
+          submitInFlight ? styles.submitPending : ""
+        }`}
         onClickCapture={handleInternalFileLink}
       >
         {/* Main chat area */}

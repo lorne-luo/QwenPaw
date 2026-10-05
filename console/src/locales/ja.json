@@ -3288,6 +3288,8 @@
     "newTask": "新しいタスク",
     "newChat": "新しいチャット",
     "groups": {
+      "unseen": "未完了",
+      "markAllSeen": "すべて既読にする",
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント"
     },

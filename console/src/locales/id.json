@@ -1137,6 +1137,8 @@
     "newTask": "Tugas baru",
     "newChat": "Chat baru",
     "groups": {
+      "unseen": "Belum selesai",
+      "markAllSeen": "Tandai semua sudah dibaca",
       "cronShort": "Terjadwal",
       "subagentShort": "Subagen"
     },

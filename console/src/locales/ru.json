@@ -3303,6 +3303,8 @@
     "newTask": "Новая задача",
     "newChat": "Новый чат",
     "groups": {
+      "unseen": "Незавершённые",
+      "markAllSeen": "Отметить все как прочитанные",
       "cronShort": "Расписание",
       "subagentShort": "Субагент"
     },

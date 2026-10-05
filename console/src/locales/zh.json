@@ -4080,6 +4080,8 @@
     "groups": {
       "create": "新建分组",
       "namePlaceholder": "分组名称",
+      "unseen": "未完成",
+      "markAllSeen": "全部标为已读",
       "uncategorized": "未分组",
       "cron": "定时任务对话",
       "cronShort": "定时任务",

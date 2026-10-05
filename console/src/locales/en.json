@@ -4221,6 +4221,8 @@
     "groups": {
       "create": "New group",
       "namePlaceholder": "Group name",
+      "unseen": "Unfinished",
+      "markAllSeen": "Mark all as read",
       "uncategorized": "Uncategorized",
       "cron": "Scheduled task conversations",
       "cronShort": "Cron",

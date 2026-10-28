@@ -2,7 +2,9 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chatApi } from "../../api/modules/chat";
+import { getPreviewType } from "../../pages/Coding/FilePreview";
 import FileGlyph from "./FileGlyph";
+import ResponseMediaGrid, { type ResponseMediaItem } from "./ResponseMediaGrid";
 import type { FileTarget } from "./types";
 import styles from "./ResponseArtifactList.module.less";
 
@@ -30,6 +32,9 @@ const TOOL_INPUT_TYPES = new Set([
   "component_call",
 ]);
 const SEND_FILE_TOOL = "sendfiletouser";
+// History stores the delivered block as ``data``; live SSE carries its media
+// kind instead.
+const DELIVERED_BLOCK_TYPES = new Set(["data", "image", "audio", "video"]);
 const TOOL_OUTPUT_TYPES = new Set([
   "tool_call_output",
   "plugin_call_output",
@@ -178,7 +183,8 @@ function targetForPath(path: string): FileTarget | null {
  * The DataBlock source shape varies with the delivery path: text files
  * arrive as ``{type: "url", url: "file://…"}`` while images are inlined as
  * ``{type: "base64", data: …}``. Keying on the block type rather than the
- * source shape keeps both covered.
+ * source shape keeps both covered. Over live SSE the block type is the media
+ * kind (``image`` / ``audio`` / ``video``) rather than ``data``.
  *
  * Tool results can carry a block array. Chat history carries the same blocks
  * as a JSON string. Both forms use the DataBlock success signal.
@@ -193,7 +199,9 @@ function hasDeliveredFile(output: unknown): boolean {
     }
   }
   if (!Array.isArray(blocks)) return false;
-  return blocks.some((block) => record(block)?.type === "data");
+  return blocks.some((block) =>
+    DELIVERED_BLOCK_TYPES.has(String(record(block)?.type)),
+  );
 }
 
 function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
@@ -258,6 +266,16 @@ const CHANGE_LABEL_KEY: Record<ArtifactChange, string> = {
   sent: "files.artifactSent",
 };
 
+/** A sent image, video or audio file the browser can show inline. */
+function mediaItem(artifact: ResponseArtifact): ResponseMediaItem | null {
+  if (normalizedToolName(artifact.toolName) !== SEND_FILE_TOOL) return null;
+  const url = artifact.target.artifactUrl;
+  if (!url) return null;
+  const kind = getPreviewType(artifact.name);
+  if (kind !== "image" && kind !== "video" && kind !== "audio") return null;
+  return { id: artifact.id, kind, name: artifact.name, url };
+}
+
 function artifactChange(toolName?: string): ArtifactChange {
   const normalized = normalizedToolName(toolName ?? "");
   if (normalized === SEND_FILE_TOOL) return "sent";
@@ -271,10 +289,17 @@ export default function ResponseArtifactList({
   // This bubble re-renders on every streamed token, so keep the extraction
   // (which walks every tool output and parses each call's arguments) bound to
   // message changes rather than to render count.
-  const artifacts = useMemo(
-    () => extractResponseArtifacts(messages),
-    [messages],
-  );
+  const { media, artifacts } = useMemo(() => {
+    const mediaItems: ResponseMediaItem[] = [];
+    const files: ResponseArtifact[] = [];
+    for (const artifact of extractResponseArtifacts(messages)) {
+      const item = mediaItem(artifact);
+      if (item) mediaItems.push(item);
+      else files.push(artifact);
+    }
+    // Artifacts list newest first; show media in the order it was sent.
+    return { media: mediaItems.reverse(), artifacts: files };
+  }, [messages]);
   const gridRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(2);
@@ -302,7 +327,7 @@ export default function ResponseArtifactList({
     return () => observer.disconnect();
   }, [artifacts.length]);
 
-  if (artifacts.length === 0) return null;
+  if (media.length === 0 && artifacts.length === 0) return null;
 
   const hasOverflow = artifacts.length > visibleCount;
   const hiddenCount = Math.max(0, artifacts.length - visibleCount);
@@ -312,43 +337,46 @@ export default function ResponseArtifactList({
 
   return (
     <div className={styles.list} data-testid="response-artifacts">
-      <div ref={gridRef} className={styles.grid}>
-        {visibleArtifacts.map((artifact) => {
-          const change = artifactChange(artifact.toolName);
-          return (
-            <button
-              key={artifact.id}
-              type="button"
-              className={styles.file}
-              title={artifact.path}
-              aria-label={`${artifact.name} ${artifact.path}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                window.dispatchEvent(
-                  new CustomEvent("qwenpaw:open-file-preview", {
-                    detail: {
-                      target: artifact.target,
-                      trigger: event.currentTarget,
-                    },
-                  }),
-                );
-              }}
-            >
-              <i className={styles.icon} aria-hidden="true">
-                <FileGlyph name={artifact.name} size={20} />
-              </i>
-              <span className={styles.details}>
-                <strong>{artifact.name}</strong>
-                <small title={artifact.path}>{artifact.path}</small>
-              </span>
-              <small className={styles.status} data-change={change}>
-                {t(CHANGE_LABEL_KEY[change])}
-              </small>
-            </button>
-          );
-        })}
-      </div>
+      {media.length > 0 && <ResponseMediaGrid items={media} />}
+      {artifacts.length > 0 && (
+        <div ref={gridRef} className={styles.grid}>
+          {visibleArtifacts.map((artifact) => {
+            const change = artifactChange(artifact.toolName);
+            return (
+              <button
+                key={artifact.id}
+                type="button"
+                className={styles.file}
+                title={artifact.path}
+                aria-label={`${artifact.name} ${artifact.path}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent("qwenpaw:open-file-preview", {
+                      detail: {
+                        target: artifact.target,
+                        trigger: event.currentTarget,
+                      },
+                    }),
+                  );
+                }}
+              >
+                <i className={styles.icon} aria-hidden="true">
+                  <FileGlyph name={artifact.name} size={20} />
+                </i>
+                <span className={styles.details}>
+                  <strong>{artifact.name}</strong>
+                  <small title={artifact.path}>{artifact.path}</small>
+                </span>
+                <small className={styles.status} data-change={change}>
+                  {t(CHANGE_LABEL_KEY[change])}
+                </small>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {hasOverflow && (
         <button
           type="button"

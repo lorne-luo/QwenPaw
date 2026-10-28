@@ -17,6 +17,7 @@ import {
 import type { ChatListSnapshot } from "../../plugins/registry/chatExtensions";
 import { resolveLanguage } from "../../components/RenderableCodeBlock/language";
 import { CodeBlockSlot, StableCodeBlocks } from "./StableCodeBlocks";
+import { MarkdownImage } from "./MarkdownImage";
 
 import type { ComponentProps } from "@ant-design/x-markdown";
 
@@ -119,8 +120,17 @@ function AssistantCodeBlock(
   );
 }
 
+// Server file paths in image sources go through the file preview endpoint.
+const hostMarkdownComponents = {
+  ...renderableCodeComponents,
+  img: MarkdownImage,
+};
+
 // Keep the adapter type stable; portals also survive Markdown ancestor replacement.
-const assistantCodeComponents = { code: AssistantCodeBlock };
+const assistantCodeComponents = {
+  code: AssistantCodeBlock,
+  img: MarkdownImage,
+};
 
 export function AssistantMarkdown({
   content,
@@ -152,7 +162,7 @@ export function AssistantMarkdown({
     return (
       <Markdown
         baseFontSize={baseFontSize}
-        components={renderableCodeComponents}
+        components={hostMarkdownComponents}
         content={deferredContent}
         cursor={cursor}
       />

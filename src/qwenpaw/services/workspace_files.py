@@ -284,6 +284,7 @@ def get_file_metadata(root: Path, api_path: str) -> dict[str, Any]:
     if not stat.S_ISREG(info.st_mode):
         raise FileNotFoundError(api_path)
     return {
+        "absolute_path": str(target),
         "etag": file_etag(info),
         "modified_at": _modified_at(info),
         "path": api_path,

@@ -10,7 +10,7 @@ import type {
 } from "../types";
 import type {
   DirectoryPage,
-  FileMetadata,
+  WorkspaceFileMetadata,
   WorkspaceRoot,
 } from "../../features/files-workspace/types";
 
@@ -83,8 +83,8 @@ export const workspaceApi = {
     chatId?: string,
     root: WorkspaceRoot = "project",
     projectDirOverride?: string,
-  ): Promise<FileMetadata> =>
-    request<FileMetadata>(
+  ): Promise<WorkspaceFileMetadata> =>
+    request<WorkspaceFileMetadata>(
       workspaceQuery("/workspace/file-metadata", { path, root }),
       { headers: projectHeaders(chatId, projectDirOverride) },
     ),

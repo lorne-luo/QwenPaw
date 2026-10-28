@@ -3,6 +3,7 @@
  *
  * Supported types (auto-detected by extension):
  *   • image  – PNG / JPG / GIF / WebP / SVG / ICO / BMP
+ *   • video / audio – formats browsers play natively
  *   • pdf    – inline <embed>
  *   • markdown – react-markdown with GFM
  *   • html   – read-only sandboxed document
@@ -51,8 +52,22 @@ const IMAGE_EXTS = new Set([
   "bmp",
 ]);
 
+const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "m4v", "ogv"]);
+const AUDIO_EXTS = new Set([
+  "mp3",
+  "wav",
+  "ogg",
+  "oga",
+  "m4a",
+  "aac",
+  "flac",
+  "opus",
+]);
+
 export type PreviewType =
   | "image"
+  | "video"
+  | "audio"
   | "pdf"
   | "markdown"
   | "html"
@@ -62,6 +77,8 @@ export type PreviewType =
 export function getPreviewType(filePath: string): PreviewType {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTS.has(ext)) return "image";
+  if (VIDEO_EXTS.has(ext)) return "video";
+  if (AUDIO_EXTS.has(ext)) return "audio";
   if (ext === "pdf") return "pdf";
   if (ext === "md" || ext === "mdx") return "markdown";
   if (ext === "html" || ext === "htm") return "html";
@@ -265,6 +282,54 @@ function PdfPreview({
       className={styles.pdfEmbed}
       title={filePath.split("/").pop()}
     />
+  );
+}
+
+function MediaFilePreview({
+  kind,
+  filePath,
+  chatId,
+  binaryUrl,
+  root,
+  projectDirOverride,
+}: {
+  kind: "video" | "audio";
+  filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
+  projectDirOverride?: string;
+}) {
+  const { t } = useTranslation();
+  const { blobUrl, loading, failed } = useAuthBlobUrl(
+    filePath,
+    chatId,
+    binaryUrl,
+    root,
+    projectDirOverride,
+  );
+  if (loading) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || !blobUrl) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.loadFailed")}
+      </PreviewStatus>
+    );
+  }
+  return (
+    <div className={styles.mediaWrap}>
+      {kind === "video" ? (
+        <video src={blobUrl} controls className={styles.video} />
+      ) : (
+        <audio src={blobUrl} controls className={styles.audio} />
+      )}
+    </div>
   );
 }
 
@@ -712,6 +777,18 @@ export default function FilePreview({
   if (type === "image") {
     return (
       <ImagePreview
+        filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
+        projectDirOverride={projectDirOverride}
+      />
+    );
+  }
+  if (type === "video" || type === "audio") {
+    return (
+      <MediaFilePreview
+        kind={type}
         filePath={filePath}
         chatId={chatId}
         binaryUrl={binaryUrl}

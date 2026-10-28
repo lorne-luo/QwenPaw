@@ -1612,6 +1612,30 @@ export default function ChatPage() {
     original: string;
     prepared: string;
   } | null>(null);
+  // The SDK leaves a direct submission in the composer until its POST is
+  // accepted. Until then that unedited content belongs to the submission, so
+  // queueing it again (repeat Enter / queue button) would send it twice.
+  const unacceptedDirectInputRef = useRef<{
+    visit: object;
+    edited: boolean;
+  } | null>(null);
+  const holdsUnacceptedDirectInput = useCallback(() => {
+    const submission = unacceptedDirectInputRef.current;
+    return Boolean(
+      submission &&
+        !submission.edited &&
+        submission.visit === queueVisitRef.current,
+    );
+  }, []);
+  useEffect(() => {
+    const markEdited = (event: Event) => {
+      const submission = unacceptedDirectInputRef.current;
+      if (!submission || !getSenderTextareaFromTarget(event.target)) return;
+      unacceptedDirectInputRef.current = { ...submission, edited: true };
+    };
+    document.addEventListener("input", markEdited, true);
+    return () => document.removeEventListener("input", markEdited, true);
+  }, []);
 
   // Build SDK fileList from QueueItem.attachments
   // SDK reads file.response.url for image_url / file_url (see AgentScopeRuntimeRequestBuilder)
@@ -1673,16 +1697,19 @@ export default function ChatPage() {
           : undefined);
       const userId = item.userId || DEFAULT_USER_ID;
       const channel = item.channel || DEFAULT_CHANNEL;
+      // Backend Chat whose history holds this queue's receipts, if it exists.
+      const historyChatId =
+        queueSessionId !== "new" &&
+        !sessionApi.isUnresolvedLocalSession(queueSessionId)
+          ? sessionApi.getRealIdForSession(queueSessionId) || queueSessionId
+          : undefined;
 
       try {
         // SDK loading is local connection state. Stop/disconnect can clear it
         // while the backend is still producing the previous turn.
-        if (
-          queueSessionId !== "new" &&
-          !sessionApi.isUnresolvedLocalSession(queueSessionId)
-        ) {
+        if (historyChatId) {
           const idle = await waitForChatIdle(
-            sessionApi.getRealIdForSession(queueSessionId) || queueSessionId,
+            historyChatId,
             signal,
             agentId,
             queueKey,
@@ -1750,14 +1777,35 @@ export default function ChatPage() {
           signal,
         );
 
-        const currentQueueId = locateQueue();
         if (accepted.accepted) {
-          if (currentQueueId) {
-            useMessageQueueStore.getState().remove(currentQueueId, item.id);
+          const acceptedQueueId = locateQueue();
+          if (acceptedQueueId) {
+            useMessageQueueStore.getState().remove(acceptedQueueId, item.id);
           }
           return true;
         }
 
+        // The request left the browser, but its response never confirmed it:
+        // the backend may still have stored this turn. Only its history can
+        // tell, so keep the item `sending` while polling, which removes it if
+        // the receipt for this client message id is present. A missing receipt
+        // leaves it a retryable failure rather than a silent resend.
+        if (accepted.backendAcceptance === "unknown" && historyChatId) {
+          try {
+            const idle = await waitForChatIdle(
+              historyChatId,
+              signal,
+              agentId,
+              queueKey,
+            );
+            if (!idle) return false;
+          } catch {
+            if (signal.aborted) return false;
+          }
+          if (!locateQueue()) return true;
+        }
+
+        const currentQueueId = locateQueue();
         if (currentQueueId) {
           useMessageQueueStore
             .getState()
@@ -2612,6 +2660,9 @@ export default function ChatPage() {
     const itemsJustQueued = messageQueue.length > 0 && !chatLoading;
 
     if (responseJustCompleted) {
+      // A direct send that ended without reaching its POST no longer owns
+      // the composer content.
+      unacceptedDirectInputRef.current = null;
       // Refresh loop mode before scheduling the next item. The execution
       // that owns the sending marker clears it in its own finally block.
       void syncLoopModeStatus().finally(scheduleNextSend);
@@ -2646,7 +2697,7 @@ export default function ChatPage() {
    */
   const enqueueFromComposer = useCallback(
     (textarea: HTMLTextAreaElement | null): boolean => {
-      if (!textarea) return false;
+      if (!textarea || holdsUnacceptedDirectInput()) return false;
       const val = textarea.value.trim();
       if (!val && pendingFileListRef.current.length === 0) return false;
       const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
@@ -2690,6 +2741,7 @@ export default function ChatPage() {
       queueSessionId,
       selectedAgent,
       captureRequestContext,
+      holdsUnacceptedDirectInput,
       t,
       message,
     ],
@@ -3611,6 +3663,9 @@ export default function ChatPage() {
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
+      }).finally(() => {
+        // Settled either way: the SDK now consumes or keeps the composer.
+        if (directSubmission) unacceptedDirectInputRef.current = null;
       });
 
       if (!response.ok && backendChatId) {
@@ -3855,6 +3910,8 @@ export default function ChatPage() {
       // changed the queue while the status response was in flight.
       if (backendRunning || !sameVisit || queueBusy()) {
         if (!val && queueAttachments.length === 0) return false;
+        // A repeat of the direct send still awaiting acceptance, not new input.
+        if (sameVisit && holdsUnacceptedDirectInput()) return false;
         const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
         if (currentQ.length >= MAX_QUEUE_SIZE) {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
@@ -3903,6 +3960,10 @@ export default function ChatPage() {
       pendingDirectInputRef.current = {
         original: data.query,
         prepared,
+      };
+      unacceptedDirectInputRef.current = {
+        visit: queueVisitRef.current,
+        edited: false,
       };
       // beforeSubmit runs before the SDK allocates a new session. An empty
       // route therefore has no runtime identity yet; let the SDK supply the
@@ -4768,6 +4829,7 @@ export default function ChatPage() {
     isQueueOnlyTab,
     showSenderBeforeUI,
     enqueueFromComposer,
+    holdsUnacceptedDirectInput,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,

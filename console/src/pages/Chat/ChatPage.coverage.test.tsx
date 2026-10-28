@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle, useEffect } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { useNavigate } from "react-router-dom";
+import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
@@ -1514,6 +1515,111 @@ describe("ChatPage coverage", () => {
     expect(root().className).not.toContain("submitPending");
   });
 
+  it("does not queue the in-flight direct submission again before acceptance", async () => {
+    const chatId = "76100000-0000-4000-8000-000000000002";
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    const utils = await import("./utils");
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValue(textarea);
+    const setLoading = (loading: boolean) => {
+      const input = {
+        loading,
+        setLoading: vi.fn(),
+        getLoading: vi.fn(() => loading),
+        setSessionLoading: vi.fn(),
+        setDisabled: vi.fn(),
+      };
+      vi.mocked(useChatAnywhereInput).mockImplementation((select) =>
+        select(input as unknown as Parameters<typeof select>[0]),
+      );
+      view.rerender(<ChatPage />);
+    };
+    const pressEnter = () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        textarea.dispatchEvent(event);
+      });
+      return event;
+    };
+    const queuedTexts = () =>
+      useMessageQueueStore
+        .getState()
+        .getQueue(chatId)
+        .map((item) => item.text);
+    let finish!: (response: Response) => void;
+    try {
+      textarea.value = "hello";
+      const admitted = await capturedOptions.sender.beforeSubmit({
+        query: "hello",
+      });
+      expect(admitted).toMatchObject({ proceed: true, query: "hello" });
+      global.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/console/chat") && init?.method === "POST"
+          ? new Promise<Response>((resolve) => {
+              finish = resolve;
+            })
+          : Promise.resolve({
+              ok: true,
+              status: 200,
+              headers: new Headers({ "Content-Type": "application/json" }),
+              json: async () => ({}),
+            } as Response),
+      ) as typeof fetch;
+      // The SDK shows the turn as loading while the POST is in flight, but it
+      // keeps the submitted text in the composer until acceptance.
+      const request = capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+      });
+      await waitFor(() => expect(finish).toBeDefined());
+      setLoading(true);
+
+      // An impatient repeat Enter must not turn the same submission into a
+      // queued duplicate.
+      const repeat = pressEnter();
+      expect(repeat.defaultPrevented).toBe(true);
+      expect(queuedTexts()).toEqual([]);
+      // Same for a repeat that reaches the SDK's own submit path.
+      await expect(
+        capturedOptions.sender.beforeSubmit({ query: "hello" }),
+      ).resolves.toBe(false);
+      expect(queuedTexts()).toEqual([]);
+
+      // Text typed after the submission is a new message and still queues.
+      textarea.value = "hello, and one more thing";
+      act(() => {
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      pressEnter();
+      expect(queuedTexts()).toEqual(["hello, and one more thing"]);
+
+      await act(async () => {
+        finish({ ok: true, status: 200, body: null } as Response);
+        await request;
+      });
+      expect(utils.clearSubmittedSenderInput).toHaveBeenCalledWith("hello");
+
+      // Once accepted, sending the same words again is a deliberate new
+      // message, not a duplicate of the accepted one.
+      textarea.value = "hello";
+      pressEnter();
+      expect(queuedTexts()).toEqual(["hello, and one more thing", "hello"]);
+    } finally {
+      setLoading(false);
+      vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValue(null);
+      textarea.remove();
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    }
+  });
+
   it("accepts the next submit once a timed-out status check fails", async () => {
     const chatId = "33322222-2222-4222-8222-222222222226";
     mockGetChatStatus.mockRejectedValueOnce(
@@ -1770,6 +1876,129 @@ describe("ChatPage coverage", () => {
     });
     expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  describe("queued send whose backend acceptance is unknown", () => {
+    // The POST left the browser but the stream dropped before its response
+    // arrived, so the SDK settles the Run with accepted=false and
+    // backendAcceptance="unknown". The backend may still own the message.
+    async function runUnknownAcceptance(receiptLands: boolean) {
+      const chatId = "76100000-0000-4000-8000-000000000001";
+      const store = useMessageQueueStore.getState();
+      store.enqueue(chatId, { text: "queued once", agentId: "default" });
+      store.enqueue(chatId, { text: "queued later", agentId: "default" });
+      const [head, next] = store.getQueue(chatId);
+      let history: Array<Record<string, unknown>> = [];
+      global.fetch = vi.fn(
+        async (input: RequestInfo | URL) =>
+          ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ "Content-Type": "application/json" }),
+            json: async () =>
+              String(input).includes(`/chats/${chatId}`)
+                ? { status: "idle", messages: history }
+                : {},
+          }) as Response,
+      );
+      mockRuntimeSubmit.mockImplementation(
+        async (
+          _data: unknown,
+          options: { clientRequestId?: string; sessionId?: string },
+        ) => {
+          const lifecycle = new ChatRunLifecycle({
+            runId: "unknown-run",
+            clientRequestId: options.clientRequestId,
+            source: "host-queue",
+            sessionId: options.sessionId,
+            cancel: vi.fn(),
+          });
+          lifecycle.markDispatched();
+          // Later items stay in flight so the assertions never race them.
+          if (options.clientRequestId !== head.clientMessageId) {
+            return lifecycle.handle;
+          }
+          if (receiptLands) {
+            history = [
+              { role: "user", metadata: {} },
+              {
+                role: "user",
+                metadata: {
+                  metadata: {
+                    qwenpaw_client_message_id: options.clientRequestId,
+                  },
+                },
+              },
+            ];
+          }
+          lifecycle.fail(new Error("stream dropped before the response"));
+          return lifecycle.handle;
+        },
+      );
+
+      renderWithProviders(<ChatPage />, {
+        initialEntries: [`/chat/${chatId}`],
+      });
+      await screen.findByTestId("chat-ui");
+      await waitFor(() => expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1), {
+        timeout: 4_000,
+      });
+      expect(mockRuntimeSubmit.mock.calls[0][1]).toMatchObject({
+        clientRequestId: head.clientMessageId,
+      });
+      return { chatId, head, next };
+    }
+
+    it("removes only the item whose receipt reaches history", async () => {
+      const { chatId, head, next } = await runUnknownAcceptance(true);
+
+      await waitFor(
+        () =>
+          expect(
+            useMessageQueueStore
+              .getState()
+              .getQueue(chatId)
+              .map((item) => item.id),
+          ).not.toContain(head.id),
+        { timeout: 4_000 },
+      );
+      // The next item then gets its own turn, untouched by the head's receipt,
+      // and the confirmed head is never resent.
+      await waitFor(() => expect(mockRuntimeSubmit).toHaveBeenCalledTimes(2), {
+        timeout: 4_000,
+      });
+      expect(mockRuntimeSubmit.mock.calls[1][1]).toMatchObject({
+        clientRequestId: next.clientMessageId,
+      });
+      expect(
+        useMessageQueueStore
+          .getState()
+          .getQueue(chatId)
+          .map((item) => item.id),
+      ).toEqual([next.id]);
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    });
+
+    it("keeps an unconfirmed item as a retryable failure", async () => {
+      const { chatId, head, next } = await runUnknownAcceptance(false);
+
+      await waitFor(
+        () =>
+          expect(
+            useMessageQueueStore.getState().getQueue(chatId)[0],
+          ).toMatchObject({ id: head.id, status: "failed" }),
+        { timeout: 4_000 },
+      );
+      expect(useMessageQueueStore.getState().getRunState(chatId)).toBe("error");
+      expect(
+        useMessageQueueStore
+          .getState()
+          .getQueue(chatId)
+          .map((item) => item.id),
+      ).toEqual([head.id, next.id]);
+      expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1);
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    });
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────

@@ -4168,6 +4168,7 @@
     "backToPreview": "Kembali ke Preview",
     "download": "Unduh",
     "downloadFailed": "Unduhan file gagal",
+    "copyServerPath": "Salin path server",
     "resize": "Ubah ukuran panel file",
     "loadFailed": "Gagal memuat file. Pastikan file masih berada di direktori kerja utama pada ruang kerja agen saat ini.",
     "previewUnavailable": "Preview tidak tersedia. Metadata dan unduhan tetap tersedia.",

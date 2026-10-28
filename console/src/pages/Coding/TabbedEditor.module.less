@@ -479,6 +479,36 @@
   white-space: nowrap;
 }
 
+// Clickable variant: copies the server path. Keeps the plain-text look and
+// truncation; the ellipsis sits on the inner span so it works on <button>.
+.fileNameButton {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--app-text-secondary);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent-ring);
+    outline-offset: 1px;
+  }
+}
+
+.fileNameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toolbarRight {
   min-width: 0;
   margin-left: auto;

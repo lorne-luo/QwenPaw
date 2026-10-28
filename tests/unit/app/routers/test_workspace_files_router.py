@@ -88,6 +88,34 @@ def test_tree_metadata_and_chunk_contract(
     assert content["truncated"] is True
 
 
+def test_metadata_reports_the_resolved_server_path_for_each_root(
+    files_client: TestClient,
+) -> None:
+    """Metadata exposes the canonical server path of the selected root."""
+    project_dir = files_client.app.state.project_dir
+    workspace_dir = files_client.app.state.workspace_dir
+    (project_dir / "src").mkdir()
+    (project_dir / "src" / "app.py").write_text("ok", encoding="utf-8")
+    (workspace_dir / "notes.md").write_text("ok", encoding="utf-8")
+
+    project_metadata = files_client.get(
+        "/api/workspace/file-metadata",
+        params={"path": "src/app.py"},
+    ).json()
+    workspace_metadata = files_client.get(
+        "/api/workspace/file-metadata",
+        params={"path": "notes.md", "root": "workspace"},
+    ).json()
+
+    assert project_metadata["path"] == "src/app.py"
+    assert project_metadata["absolute_path"] == str(
+        (project_dir / "src" / "app.py").resolve(),
+    )
+    assert workspace_metadata["absolute_path"] == str(
+        (workspace_dir / "notes.md").resolve(),
+    )
+
+
 def test_save_uses_if_match_conflict_detection(
     files_client: TestClient,
 ) -> None:

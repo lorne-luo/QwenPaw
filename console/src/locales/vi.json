@@ -2463,6 +2463,7 @@
     "backToPreview": "Quay lại Preview",
     "download": "Tải xuống",
     "downloadFailed": "Không thể tải tệp xuống",
+    "copyServerPath": "Sao chép đường dẫn trên máy chủ",
     "resize": "Đổi kích thước ngăn tệp",
     "loadFailed": "Không thể tải tệp. Hãy kiểm tra tệp vẫn nằm trong thư mục làm việc chính của không gian làm việc tác nhân hiện tại.",
     "previewUnavailable": "Không thể Preview. Siêu dữ liệu và tải xuống vẫn khả dụng.",

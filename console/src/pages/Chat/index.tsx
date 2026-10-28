@@ -177,7 +177,9 @@ import {
   type FilesWorkspaceScope,
 } from "../../features/files-workspace/filesWorkspaceScope";
 import {
+  encodeFilePath,
   filePathFromPreviewUrl,
+  parseAbsoluteFileLink,
   parseInternalFileLink,
   rootForFileReference,
 } from "../../features/files-workspace/internalFileLinks";
@@ -1456,7 +1458,19 @@ export default function ChatPage() {
       if (!(element instanceof Element)) return;
       const anchor = element.closest<HTMLAnchorElement>("a[href]");
       if (!anchor) return;
-      const target = parseInternalFileLink(anchor.getAttribute("href") ?? "");
+      const href = anchor.getAttribute("href") ?? "";
+      const absolutePath = parseAbsoluteFileLink(href);
+      const target: FileTarget | null =
+        parseInternalFileLink(href) ??
+        (absolutePath
+          ? {
+              source: "attachment",
+              path: absolutePath,
+              artifactUrl: chatApi.filePreviewUrl(
+                encodeFilePath(absolutePath),
+              ),
+            }
+          : null);
       if (!target) return;
       event.preventDefault();
       event.stopPropagation();

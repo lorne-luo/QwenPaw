@@ -60,6 +60,12 @@ export interface FileMetadata {
   etag: string;
 }
 
+/** `FileMetadata` as returned by `/workspace/file-metadata`. */
+export interface WorkspaceFileMetadata extends FileMetadata {
+  /** Canonical filesystem path on the server, resolved below the root. */
+  absolute_path: string;
+}
+
 export interface DirectoryEntry {
   name: string;
   path: string;

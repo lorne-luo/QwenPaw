@@ -53,6 +53,7 @@ import {
   useDiffsForScope,
   type EditorTab,
 } from "../../stores/codingTabsStore";
+import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import {
   detectCopyMode,
   formatSelectionForChat,
@@ -380,6 +381,59 @@ export default function TabbedEditor({
       message.error(t("common.copyFailed"));
     }
   }, [activeRenderedContent, message, t]);
+
+  // Only Files API tabs can ask the server where the file lives. Profile,
+  // memory and historical-artifact tabs have no authoritative absolute path,
+  // so their toolbar path stays plain text.
+  const activeServerPathRoot: WorkspaceRoot | null =
+    activeTab?.source === "workspace"
+      ? activeTab.workspaceRoot ?? "project"
+      : null;
+  const serverPathsRef = useRef(new Map<string, Promise<string>>());
+  const resolveServerPath = useCallback(
+    (path: string, root: WorkspaceRoot): Promise<string> => {
+      const key = JSON.stringify([root, path, chatId, projectDirOverride]);
+      let pending = serverPathsRef.current.get(key);
+      if (!pending) {
+        pending = workspaceApi
+          .getFileMetadata(path, chatId, root, projectDirOverride)
+          .then(
+            (metadata) => metadata.absolute_path,
+            (error: unknown) => {
+              // Forget failures so the next click asks the server again.
+              serverPathsRef.current.delete(key);
+              throw error;
+            },
+          );
+        serverPathsRef.current.set(key, pending);
+      }
+      return pending;
+    },
+    [chatId, projectDirOverride],
+  );
+
+  // Resolve ahead of the click: Safari drops the user gesture across a
+  // network await, which would make the clipboard write fail. A failure here
+  // stays silent; the click retries and reports it.
+  useEffect(() => {
+    if (activeServerPathRoot) {
+      resolveServerPath(activeDisplayPath, activeServerPathRoot).catch(
+        () => undefined,
+      );
+    }
+  }, [activeDisplayPath, activeServerPathRoot, resolveServerPath]);
+
+  const handleCopyServerPath = useCallback(async () => {
+    if (!activeServerPathRoot) return;
+    try {
+      await copyText(
+        await resolveServerPath(activeDisplayPath, activeServerPathRoot),
+      );
+      message.success(t("common.copied"));
+    } catch {
+      message.error(t("common.copyFailed"));
+    }
+  }, [activeDisplayPath, activeServerPathRoot, message, resolveServerPath, t]);
 
   // Hydrate the `modified` side of any persisted diff by re-reading the
   // current disk content. Drop diffs whose file no longer exists.
@@ -1257,7 +1311,20 @@ export default function TabbedEditor({
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div className={styles.toolbar}>
-        <span className={styles.fileName}>{activeDisplayPath}</span>
+        {activeServerPathRoot ? (
+          <Tooltip title={t("files.copyServerPath")}>
+            <button
+              type="button"
+              className={`${styles.fileName} ${styles.fileNameButton}`}
+              aria-label={`${t("files.copyServerPath")}: ${activeDisplayPath}`}
+              onClick={() => void handleCopyServerPath()}
+            >
+              <span className={styles.fileNameText}>{activeDisplayPath}</span>
+            </button>
+          </Tooltip>
+        ) : (
+          <span className={styles.fileName}>{activeDisplayPath}</span>
+        )}
 
         <div className={styles.toolbarRight}>
           {activeDiff && (

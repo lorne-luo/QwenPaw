@@ -57,6 +57,7 @@ const SendFileCard: React.FC<SendFileCardProps> = ({
       isStreaming={isStreaming}
       icon={<Send size={15} />}
       title={title}
+      defaultExpanded={Boolean(media) && media?.type !== "file"}
     >
       {media && (
         <MediaPreview

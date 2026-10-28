@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseAbsoluteFileLink,
   parseInternalFileLink,
   filePathFromPreviewUrl,
   rootForFileReference,
@@ -58,6 +59,30 @@ describe("parseInternalFileLink", () => {
     expect(
       filePathFromPreviewUrl("/api/files/preview/C%3A/Work/Project/hello.txt"),
     ).toBe("C:/Work/Project/hello.txt");
+  });
+
+  it("parses absolute server file links, decoding percent-escapes", () => {
+    expect(
+      parseAbsoluteFileLink(
+        "/home/ubuntu/.qwenpaw/workspaces/creator/aigc/%E5%88%86%E4%BA%AB%E7%A8%BF.md",
+      ),
+    ).toBe("/home/ubuntu/.qwenpaw/workspaces/creator/aigc/分享稿.md");
+    expect(parseAbsoluteFileLink("/home/ubuntu/.bashrc#L3")).toBe(
+      "/home/ubuntu/.bashrc",
+    );
+  });
+
+  it.each([
+    "/chat/abc123",
+    "/settings",
+    "/api/files/preview/home/ubuntu/a.png",
+    "//cdn.example.com/a.js",
+    "/home/ubuntu/../etc/passwd.md",
+    "/bad%E0%A4%A.md",
+    "relative/file.md",
+    "https://example.com/a.md",
+  ])("does not treat %s as an absolute file link", (href) => {
+    expect(parseAbsoluteFileLink(href)).toBeNull();
   });
 
   it("resolves absolute references against project and workspace roots", () => {

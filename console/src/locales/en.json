@@ -3234,6 +3234,7 @@
     "backToPreview": "Back to Preview",
     "download": "Download",
     "downloadFailed": "File download failed",
+    "copyServerPath": "Copy server path",
     "resize": "Resize Files drawer",
     "enterFullscreen": "Fullscreen preview",
     "exitFullscreen": "Exit fullscreen preview",

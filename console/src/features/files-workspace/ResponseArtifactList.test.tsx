@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
@@ -74,6 +74,42 @@ function successfulSendFile(path: string, serializedOutput = false) {
             call_id: `call-send-${path}`,
             state: "success",
             output: serializedOutput ? JSON.stringify(output) : output,
+          },
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * A ``send_file_to_user`` result as it arrives over live SSE: the tool output
+ * block carries the media type (``image`` / ``audio`` / ``video``) instead of
+ * the ``data`` type that chat history stores.
+ */
+function liveSendFile(path: string, blockType: string) {
+  return [
+    {
+      id: `result-live-${path}`,
+      type: "plugin_call_output",
+      status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-live-${path}`,
+            name: "send_file_to_user",
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        {
+          data: {
+            call_id: `call-live-${path}`,
+            output: JSON.stringify([
+              {
+                type: blockType,
+                source: { type: "url", url: `file://${path}` },
+              },
+              { type: "text", text: "File sent successfully." },
+            ]),
           },
         },
       ],
@@ -397,5 +433,96 @@ describe("ResponseArtifactList", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows a sent image as a thumbnail instead of a file card", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/out/chart.png")}
+      />,
+    );
+
+    const image = screen.getByAltText("chart.png");
+    expect(image.getAttribute("src")).toContain(
+      "/files/preview/tmp/out/chart.png",
+    );
+    expect(
+      screen.queryByRole("button", { name: "chart.png /tmp/out/chart.png" }),
+    ).toBeNull();
+  });
+
+  it("enlarges a sent image in a preview overlay when clicked", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/out/chart.png")}
+      />,
+    );
+
+    fireEvent.click(screen.getByAltText("chart.png"));
+
+    expect(document.querySelector(".ant-image-preview")).not.toBeNull();
+  });
+
+  it("shows a sent video as a thumbnail and plays it in a dialog", () => {
+    const { container } = render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/out/clip.mp4")}
+      />,
+    );
+
+    const thumbnail = container.querySelector("video");
+    expect(thumbnail?.getAttribute("src")).toContain(
+      "/files/preview/tmp/out/clip.mp4",
+    );
+    expect(thumbnail?.hasAttribute("controls")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "clip.mp4" }));
+
+    const dialog = screen.getByRole("dialog");
+    const player = dialog.querySelector("video");
+    expect(player?.hasAttribute("controls")).toBe(true);
+    expect(player?.getAttribute("src")).toContain(
+      "/files/preview/tmp/out/clip.mp4",
+    );
+    expect(within(dialog).getByText("clip.mp4")).toBeInTheDocument();
+  });
+
+  it("shows a sent audio file as a tile and plays it in a dialog", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/out/voice.mp3")}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "voice.mp3" }));
+
+    const player = screen.getByRole("dialog").querySelector("audio");
+    expect(player?.hasAttribute("controls")).toBe(true);
+    expect(player?.getAttribute("src")).toContain(
+      "/files/preview/tmp/out/voice.mp3",
+    );
+  });
+
+  it("keeps a relative media path as a file card", () => {
+    render(
+      <ResponseArtifactList messages={successfulSendFile("out/chart.png")} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "chart.png out/chart.png" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it.each([
+    ["/tmp/out/chart.png", "image"],
+    ["/tmp/out/voice.mp3", "audio"],
+    ["/tmp/out/clip.mp4", "video"],
+  ])("detects a live SSE send of %s", (path, blockType) => {
+    const { container } = render(
+      <ResponseArtifactList messages={liveSendFile(path, blockType)} />,
+    );
+
+    expect(container).not.toBeEmptyDOMElement();
   });
 });

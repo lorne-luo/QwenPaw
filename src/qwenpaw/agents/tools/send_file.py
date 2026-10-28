@@ -29,7 +29,14 @@ from .file_io import _resolve_file_path, _path_to_file_url
 async def send_file_to_user(
     file_path: str,
 ) -> ToolChunk:
-    """Send a file to the user.
+    """Send a file to the user as a chat attachment.
+
+    Use this whenever the user should open the file itself: a generated
+    image, chart, audio clip, video, PDF or report. The web console shows
+    images inline and plays audio and video in the chat; IM channels
+    deliver the file as a native attachment. A file path written in your
+    reply is not delivered on IM channels, so call this tool instead of
+    only replying with the path.
 
     Args:
         file_path (`str`):

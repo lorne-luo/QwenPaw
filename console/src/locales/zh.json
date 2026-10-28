@@ -3087,6 +3087,7 @@
     "backToPreview": "返回预览",
     "download": "下载",
     "downloadFailed": "文件下载失败",
+    "copyServerPath": "复制服务器路径",
     "resize": "调整文件抽屉宽度",
     "enterFullscreen": "全屏预览",
     "exitFullscreen": "退出全屏预览",

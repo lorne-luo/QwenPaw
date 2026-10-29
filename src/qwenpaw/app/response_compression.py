@@ -7,6 +7,8 @@ import gzip
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+_COMPRESSIBLE_TYPES = frozenset({"application/json", "text/plain"})
+
 
 class ResponseCompressionMiddleware:
     """Offload compression and leave downloads and streaming bodies alone."""
@@ -50,19 +52,22 @@ class ResponseCompressionMiddleware:
         async def send_response(message: Message) -> None:
             nonlocal start
             if message["type"] == "http.response.start":
-                start = message
-                return
+                content_type = Headers(scope=message).get("content-type", "")
+                media_type = content_type.split(";", 1)[0].strip().lower()
+                # Only a complete JSON/text body can be compressed, so only
+                # hold its start. Others, SSE above all, must not wait for a
+                # first chunk: clients act on the headers before it arrives.
+                if media_type in _COMPRESSIBLE_TYPES:
+                    start = message
+                    return
             if start is not None:
                 headers = MutableHeaders(scope=start)
-                content_type = headers.get("content-type", "")
-                media_type = content_type.split(";", 1)[0].strip().lower()
                 body = message.get("body", b"")
                 eligible = (
                     message["type"] == "http.response.body"
                     and not message.get("more_body", False)
                     and start["status"] == 200
                     and len(body) >= self.minimum_size
-                    and media_type in {"application/json", "text/plain"}
                     and "content-encoding" not in headers
                     and "content-disposition" not in headers
                     and "content-range" not in headers

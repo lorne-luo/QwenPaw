@@ -170,3 +170,41 @@ async def test_stream_chunks_are_forwarded_before_producer_continues():
         send,
     )
     assert delivered[-1]["body"] == b"last"
+
+
+@pytest.mark.asyncio
+async def test_event_stream_headers_are_sent_before_first_event():
+    """The console composer clears once fetch resolves, i.e. on headers.
+
+    An SSE body waits on the agent's first event, so holding the response
+    start for it left a sent message in the input box until the reply began.
+    """
+    delivered = []
+
+    async def send(message):
+        delivered.append(message)
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def sse_app(_scope, _receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/event-stream")],
+            },
+        )
+        assert delivered and delivered[-1]["type"] == "http.response.start"
+        await send({"type": "http.response.body", "body": b"data: {}\n\n"})
+
+    middleware = ResponseCompressionMiddleware(sse_app)
+    await middleware(
+        {"type": "http", "headers": [(b"accept-encoding", b"gzip")]},
+        receive,
+        send,
+    )
+    assert [m["type"] for m in delivered] == [
+        "http.response.start",
+        "http.response.body",
+    ]

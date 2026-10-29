@@ -144,4 +144,17 @@ describe("SettingsCenter responsive layout", () => {
     expect(darkRule).toContain(":global(.qwenpaw-checkbox-wrapper-disabled)");
     expect(darkRule).toContain("color: var(--app-text);");
   });
+
+  it("stretches the mobile page picker under the qwenpaw antd prefix", () => {
+    const navStart = stylesSource.indexOf(
+      "  .mobileNavigation {\n    display: flex;",
+    );
+    const navRule = stylesSource.slice(
+      navStart,
+      stylesSource.indexOf("flex: 1;", navStart),
+    );
+
+    expect(navStart).toBeGreaterThanOrEqual(0);
+    expect(navRule).toContain("> :global(.qwenpaw-select)");
+  });
 });

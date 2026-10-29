@@ -44,6 +44,32 @@ export function parseInternalFileLink(rawHref: string): FileTarget | null {
   };
 }
 
+/**
+ * Agents often link files by server path: `[a.md](/home/me/a.md)`. Clicked
+ * as-is, the browser navigates to that path on the console origin and gets
+ * the SPA shell. Console routes and `/api/` URLs never end in a file
+ * extension, so requiring one keeps in-app links navigating normally.
+ */
+export function parseAbsoluteFileLink(rawHref: string): string | null {
+  const [href] = rawHref.trim().split("#", 1);
+  if (!href.startsWith("/") || href.startsWith("//")) return null;
+  let path: string;
+  try {
+    path = decodeURIComponent(href);
+  } catch {
+    return null;
+  }
+  const segments = path.slice(1).split("/");
+  if (
+    segments[0] === "api" ||
+    hasUnsafeSegment(path.slice(1)) ||
+    !/\.[^.]+$/.test(segments[segments.length - 1])
+  ) {
+    return null;
+  }
+  return path;
+}
+
 export function toProjectRelativePath(
   rawPath: string,
   projectDirectory?: string,

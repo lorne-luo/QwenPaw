@@ -70,6 +70,73 @@ describe("useSessions", () => {
     expect(result.current.sessions).toEqual([archived]);
   });
 
+  it("orders both tabs by last activity, not creation or archive time", async () => {
+    // Creation order is the reverse of activity order, so a created_at sort
+    // would fail. Missing timestamps fall back to created_at, then sort last.
+    const activeOldButBusy = {
+      id: "active-busy",
+      name: "Busy",
+      created_at: "2026-09-01T12:00:00Z",
+      updated_at: "2026-09-20T12:00:00Z",
+    };
+    const activeNewButIdle = {
+      id: "active-idle",
+      name: "Idle",
+      created_at: "2026-09-10T12:00:00Z",
+      updated_at: "2026-09-10T13:00:00Z",
+    };
+    const activeCreatedOnly = {
+      id: "active-created-only",
+      name: "Created only",
+      created_at: "2026-09-15T12:00:00Z",
+      updated_at: null,
+    };
+    const activeNoTime = {
+      id: "active-no-time",
+      name: "No time",
+      created_at: null,
+      updated_at: null,
+    };
+    const archivedRecentlyArchived = {
+      id: "archived-recent",
+      name: "Recently archived",
+      archived: true,
+      archived_at: "2026-09-25T12:00:00Z",
+      created_at: "2026-09-02T12:00:00Z",
+      updated_at: "2026-09-03T12:00:00Z",
+    };
+    const archivedRecentlyActive = {
+      id: "archived-active",
+      name: "Recently active",
+      archived: true,
+      archived_at: "2026-09-05T12:00:00Z",
+      created_at: "2026-09-01T12:00:00Z",
+      updated_at: "2026-09-22T12:00:00Z",
+    };
+    (chatApi.listChats as ReturnType<typeof vi.fn>).mockResolvedValue([
+      activeNoTime,
+      activeNewButIdle,
+      archivedRecentlyArchived,
+      activeCreatedOnly,
+      activeOldButBusy,
+      archivedRecentlyActive,
+    ]);
+    const { result } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.sessions.map((s) => s.id)).toEqual([
+      "active-busy",
+      "active-created-only",
+      "active-idle",
+      "active-no-time",
+    ]);
+    act(() => result.current.setActiveTab("archived"));
+    expect(result.current.sessions.map((s) => s.id)).toEqual([
+      "archived-active",
+      "archived-recent",
+    ]);
+  });
+
   // 1. 初始 loading=true，fetchSessions 成功后 loading=false
   it("初始 loading=true，fetchSessions 成功后 loading=false", async () => {
     const { result } = renderHook(() => useSessions());

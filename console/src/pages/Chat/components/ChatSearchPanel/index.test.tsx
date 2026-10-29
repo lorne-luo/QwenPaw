@@ -410,6 +410,60 @@ describe("ChatSearchPanel", () => {
     );
   });
 
+  it("orders and dates results by last activity, not creation time", async () => {
+    const user = userEvent.setup();
+    // Creation order is Gamma > Alpha > Beta; activity order is
+    // Beta > Gamma (created_at fallback) > Alpha, and Delta has no time.
+    chatMocks.listChats.mockResolvedValue([
+      {
+        id: "c-delta",
+        name: "Delta needle",
+        created_at: null,
+        updated_at: null,
+      },
+      {
+        id: "c-alpha",
+        name: "Alpha needle",
+        created_at: "2026-09-10T12:00:00Z",
+        updated_at: "2026-09-10T13:00:00Z",
+      },
+      {
+        id: "c-gamma",
+        name: "Gamma needle",
+        created_at: "2026-09-15T12:00:00Z",
+        updated_at: null,
+      },
+      {
+        id: "c-beta",
+        name: "Beta needle",
+        created_at: "2026-09-01T12:00:00Z",
+        updated_at: "2026-09-20T12:00:00Z",
+      },
+    ]);
+    renderPanel();
+
+    await typeAndWaitForSearch(user, "needle");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("chat.search.resultsCount:4"),
+      ).toBeInTheDocument(),
+    );
+    // Each title match renders the name twice (header + snippet); a Set keeps
+    // first-seen document order.
+    const names = new Set(
+      screen.getAllByText(/^\w+ needle$/).map((el) => el.textContent),
+    );
+    expect([...names]).toEqual([
+      "Beta needle",
+      "Gamma needle",
+      "Alpha needle",
+      "Delta needle",
+    ]);
+    expect(screen.getByText(/^2026-09-20 \d\d:\d\d$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^2026-09-01 \d\d:\d\d$/)).toBeNull();
+  });
+
   it("handles non-string, non-array content gracefully", async () => {
     const user = userEvent.setup();
     chatMocks.listChats.mockResolvedValue(chats(["c1", "Chat"]));

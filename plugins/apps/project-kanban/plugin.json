@@ -1,0 +1,32 @@
+{
+  "id": "project-kanban",
+  "name": "Project Kanban",
+  "version": "0.1.0",
+  "description": "A per-project, multi-agent kanban: give a project a brief and member agents, split it into issues, and let several agents work on it in parallel, each through its own queue.",
+  "description_i18n": {
+    "zh-CN": "按项目组织的多智能体看板：为项目设定简介和成员智能体，拆分任务并指派给成员，多个智能体各自排队、并行推进同一个项目。",
+    "en-US": "A per-project, multi-agent kanban: give a project a brief and member agents, split it into issues, and let several agents work on it in parallel, each through its own queue."
+  },
+  "author": "QwenPaw Team",
+  "type": "app",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/index.js"
+  },
+  "qwenpaw_version": {
+    "min": "2.0.1"
+  },
+  "meta": {
+    "pawapp": {
+      "icon": "🗂️",
+      "category": "productivity",
+      "entry_page": "/apps/project-kanban",
+      "launch_scope": "page"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true
+    },
+    "settings": []
+  }
+}

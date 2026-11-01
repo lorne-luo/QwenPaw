@@ -542,7 +542,6 @@ vi.mock("./utils", async () => {
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
-    clearSubmittedSenderInput: vi.fn(),
   };
 });
 
@@ -1561,7 +1560,11 @@ describe("ChatPage coverage", () => {
       const admitted = await capturedOptions.sender.beforeSubmit({
         query: "hello",
       });
-      expect(admitted).toMatchObject({ proceed: true, query: "hello" });
+      expect(admitted).toMatchObject({
+        proceed: true,
+        clear: true,
+        query: "hello",
+      });
       global.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
         String(input).endsWith("/console/chat") && init?.method === "POST"
           ? new Promise<Response>((resolve) => {
@@ -1605,7 +1608,6 @@ describe("ChatPage coverage", () => {
         finish({ ok: true, status: 200, body: null } as Response);
         await request;
       });
-      expect(utils.clearSubmittedSenderInput).toHaveBeenCalledWith("hello");
 
       // Once accepted, sending the same words again is a deliberate new
       // message, not a duplicate of the accepted one.

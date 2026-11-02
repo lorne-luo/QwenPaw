@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
  * Flipping this flag simulates the user opening the `<details>`.
  */
 const userExpanded = vi.hoisted(() => ({ current: false }));
+const mediaType = vi.hoisted(() => ({ current: "file" }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -49,7 +50,7 @@ vi.mock("../shared/utils", () => ({
   getMediaInfo: () => ({
     url: "/api/files/preview/hello.txt",
     name: "hello.txt",
-    type: "file",
+    type: mediaType.current,
   }),
 }));
 
@@ -98,5 +99,19 @@ describe("SendFileCard", () => {
 
     window.removeEventListener("qwenpaw:open-file-preview", listener);
     userExpanded.current = false;
+  });
+
+  it("expands by default when the sent file is an image", () => {
+    userExpanded.current = false;
+    mediaType.current = "image";
+
+    render(<SendFileCard content={sentFile} />);
+
+    expect(screen.getByTestId("shell")).toHaveAttribute(
+      "data-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "open file" })).toBeTruthy();
+    mediaType.current = "file";
   });
 });

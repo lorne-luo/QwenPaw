@@ -37,6 +37,7 @@ import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntim
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
+import { MarkdownImage } from "./MarkdownImage";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
@@ -95,6 +96,11 @@ function useAnsweringAgentName(): string | undefined {
   return agent ? getAgentDisplayName(agent, t) : undefined;
 }
 
+const hostMarkdownComponents = {
+  ...renderableCodeComponents,
+  img: MarkdownImage,
+};
+
 function DeferredMarkdown({
   content,
   cursor,
@@ -111,7 +117,7 @@ function DeferredMarkdown({
   return (
     <Markdown
       baseFontSize={baseFontSize}
-      components={renderableCodeComponents}
+      components={hostMarkdownComponents}
       content={deferredContent}
       cursor={cursor}
     />

@@ -76,6 +76,30 @@ describe("getPreviewType (#5863)", () => {
     expect(getPreviewType(path)).toBe(expected);
   });
 
+  it.each([
+    ["clip.mp4", "video"],
+    ["clip.WEBM", "video"],
+    ["clip.mov", "video"],
+    ["clip.m4v", "video"],
+    ["clip.ogv", "video"],
+    ["voice.mp3", "audio"],
+    ["voice.wav", "audio"],
+    ["voice.ogg", "audio"],
+    ["voice.oga", "audio"],
+    ["voice.m4a", "audio"],
+    ["voice.aac", "audio"],
+    ["voice.flac", "audio"],
+    ["voice.opus", "audio"],
+  ])("detects media type for %s", (path, expected) => {
+    expect(getPreviewType(path)).toBe(expected);
+  });
+
+  it("does not preview media formats browsers cannot play", () => {
+    expect(getPreviewType("movie.mkv")).toBe("none");
+    expect(getPreviewType("movie.avi")).toBe("none");
+    expect(getPreviewType("song.wma")).toBe("none");
+  });
+
   it("detects pdf / markdown / html / csv types", () => {
     expect(getPreviewType("doc.pdf")).toBe("pdf");
     expect(getPreviewType("README.md")).toBe("markdown");
@@ -182,5 +206,68 @@ describe("FilePreview image rendering (A#82584296)", () => {
     await waitFor(() => {
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("FilePreview media rendering", () => {
+  const mockBlobUrl = "blob:http://localhost/fake-media-id";
+
+  beforeEach(() => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () =>
+        Promise.resolve(new Blob(["fake-media"], { type: "video/mp4" })),
+    }) as unknown as typeof fetch;
+    vi.spyOn(URL, "createObjectURL").mockReturnValue(mockBlobUrl);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  });
+
+  it("plays a video file through the authenticated blob URL", async () => {
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <FilePreview filePath="out/clip.mp4" content="" />,
+      ));
+    });
+
+    await waitFor(() => {
+      const video = container.querySelector("video");
+      expect(video).not.toBeNull();
+      expect(video?.getAttribute("src")).toBe(mockBlobUrl);
+      expect(video?.hasAttribute("controls")).toBe(true);
+    });
+  });
+
+  it("plays an audio file through the authenticated blob URL", async () => {
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <FilePreview filePath="out/voice.mp3" content="" />,
+      ));
+    });
+
+    await waitFor(() => {
+      const audio = container.querySelector("audio");
+      expect(audio).not.toBeNull();
+      expect(audio?.getAttribute("src")).toBe(mockBlobUrl);
+      expect(audio?.hasAttribute("controls")).toBe(true);
+    });
+  });
+
+  it("shows the load-failed state instead of a player", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <FilePreview filePath="missing.mp4" content="" />,
+      ));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("files.loadFailed")).toBeInTheDocument();
+    });
+    expect(container.querySelector("video")).toBeNull();
   });
 });

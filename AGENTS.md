@@ -1,6 +1,15 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
+
+## Fork
+
+This is Lorne's personal fork of [agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw).
+
+- Branch naming: `{upstream version}-lorne`, e.g. `v0.5.59-lorne` — the upstream release the branch is
+  based on, plus `-lorne`.
+- Push only to the remote that belongs to GitHub user `lorne-luo` (`fork` →
+  `https://github.com/lorne-luo/QwenPaw.git`). Never push to `origin` (upstream `agentscope-ai/QwenPaw`).
 
 ## What this is
 

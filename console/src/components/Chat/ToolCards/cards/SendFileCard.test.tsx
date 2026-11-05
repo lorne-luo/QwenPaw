@@ -101,17 +101,20 @@ describe("SendFileCard", () => {
     userExpanded.current = false;
   });
 
-  it("expands by default when the sent file is an image", () => {
-    userExpanded.current = false;
-    mediaType.current = "image";
+  it.each(["image", "video", "audio"])(
+    "expands by default when the sent file is %s",
+    (type) => {
+      userExpanded.current = false;
+      mediaType.current = type;
 
-    render(<SendFileCard content={sentFile} />);
+      render(<SendFileCard content={sentFile} />);
 
-    expect(screen.getByTestId("shell")).toHaveAttribute(
-      "data-expanded",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "open file" })).toBeTruthy();
-    mediaType.current = "file";
-  });
+      expect(screen.getByTestId("shell")).toHaveAttribute(
+        "data-expanded",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "open file" })).toBeTruthy();
+      mediaType.current = "file";
+    },
+  );
 });

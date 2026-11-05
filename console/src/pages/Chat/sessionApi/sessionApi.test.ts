@@ -728,3 +728,54 @@ describe("visible session usage ownership", () => {
     ).toBe(500);
   });
 });
+
+describe("pending user message after a completed turn", () => {
+  const chatId = "33333333-3333-4333-8333-333333333333";
+  const turn = (userMetadata: Record<string, unknown>): ChatHistory =>
+    ({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "hi" }],
+          metadata: { original_name: "user", metadata: userMetadata },
+        },
+        { role: "assistant", content: [{ type: "text", text: "hello" }] },
+      ],
+      status: "idle",
+    }) as ChatHistory;
+  const userCount = (session?: { messages?: Array<{ role: string }> }) =>
+    session?.messages?.filter((message) => message.role === "user").length;
+
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+    localStorage.clear();
+  });
+
+  it("does not repeat a turn persisted without client ids", async () => {
+    // Third-party backends and older histories store no client id.
+    sessionApi.setLastUserMessage([chatId], "hi", undefined, "client-new");
+    vi.spyOn(api, "getChat").mockResolvedValue(
+      turn({ third_party_backend: "codex" }),
+    );
+
+    expect(userCount(await sessionApi.refreshSession(chatId))).toBe(1);
+    expect(
+      localStorage.getItem(`qwenpaw_pending_user_msg_${chatId}`),
+    ).toBeNull();
+  });
+
+  it("keeps an identical message pending behind another client id", async () => {
+    sessionApi.setLastUserMessage([chatId], "hi", undefined, "client-new");
+    vi.spyOn(api, "getChat").mockResolvedValue(
+      turn({ qwenpaw_client_message_id: "client-old" }),
+    );
+
+    expect(userCount(await sessionApi.refreshSession(chatId))).toBe(2);
+  });
+});

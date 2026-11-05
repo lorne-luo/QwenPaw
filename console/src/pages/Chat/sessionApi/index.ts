@@ -1137,14 +1137,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
+      let lastUserHasClientId = false;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
         lastUserText = extractTextFromContent(input?.content);
+        lastUserHasClientId = Boolean(extractClientMessageId(input?.metadata));
         break;
       }
+      // Fall back to text only when history carries no client ids (older
+      // or third-party turns). A different id means an identical message
+      // sent earlier, not this one.
       const persistenceConfirmed =
-        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
+        (!cached.clientMessageId || !lastUserHasClientId) &&
+        lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         pendingIds.forEach(clearPendingUserMessage);
         return false;

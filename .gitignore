@@ -110,7 +110,6 @@ logs/
 AGENTS.md
 .claude
 openspec
-CLAUDE.md
 *.tmp
 
 # Build cache

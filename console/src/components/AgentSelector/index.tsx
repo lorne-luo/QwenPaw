@@ -301,7 +301,7 @@ export default function AgentSelector({
           />
         </div>
         <div className={styles.agentOptionIcon}>
-          <AgentAvatar icon={agent.icon} size={16} strokeWidth={2} />
+          <AgentAvatar icon={agent.icon} size={32} strokeWidth={2} />
         </div>
         <div className={styles.agentOptionContent}>
           <div className={styles.agentOptionName}>

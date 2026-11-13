@@ -276,17 +276,6 @@
 
       &.qwenpaw-select-item-option-selected {
         background: var(--app-fill) !important;
-
-        .agentOptionIcon {
-          background: linear-gradient(
-            135deg,
-            var(--app-accent) 0%,
-            var(--app-accent-hover) 100%
-          );
-          border-color: transparent;
-          color: var(--app-text-inverse);
-          box-shadow: 0 2px 8px var(--app-accent-ring);
-        }
       }
     }
 
@@ -308,17 +297,6 @@
 
       &.ant-select-item-option-selected {
         background: var(--app-fill) !important;
-
-        .agentOptionIcon {
-          background: linear-gradient(
-            135deg,
-            var(--app-accent) 0%,
-            var(--app-accent-hover) 100%
-          );
-          border-color: transparent;
-          color: var(--app-text-inverse);
-          box-shadow: 0 2px 8px var(--app-accent-ring);
-        }
       }
     }
 
@@ -512,6 +490,8 @@
   }
 }
 
+// No frame: the avatar fills the 32px slot itself (lucide badges carry their
+// own tile). The accent color only tints the bot fallback glyph.
 .agentOptionIcon {
   flex-shrink: 0;
   width: 32px;
@@ -519,24 +499,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--app-accent-faint);
-  border: 1px solid var(--app-accent-soft);
-  border-radius: 8px;
   color: var(--app-accent);
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    opacity 0.2s ease,
-    transform 0.2s ease;
-
-  .agentOption:hover & {
-    background: var(--app-accent-soft);
-    border-color: var(--app-accent-border);
-    color: var(--app-accent);
-    box-shadow: 0 2px 6px var(--app-accent-soft);
-  }
 }
 
 .agentOptionContent {

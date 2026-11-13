@@ -456,6 +456,60 @@ def test_get_agent_returns_config(client):
     assert response.json()["id"] == "bot"
 
 
+def test_get_agent_avatar_serves_svg_with_etag(client):
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        icon="lucide:telescope:indigo",
+        workspace_dir="/tmp/ws/bot",
+    )
+
+    with patch(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        return_value=cfg,
+    ):
+        first = client.get("/api/agents/bot/avatar.svg")
+        again = client.get(
+            "/api/agents/bot/avatar.svg",
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "image/svg+xml"
+    assert first.headers["cache-control"] == "private, no-cache"
+    assert first.text.startswith("<svg")
+    assert again.status_code == 304
+    assert again.content == b""
+
+
+@pytest.mark.parametrize("icon", ["", "🦊"])
+def test_get_agent_avatar_404_without_lucide_icon(client, icon):
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        icon=icon,
+        workspace_dir="/tmp/ws/bot",
+    )
+
+    with patch(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        return_value=cfg,
+    ):
+        response = client.get("/api/agents/bot/avatar.svg")
+
+    assert response.status_code == 404
+
+
+def test_get_agent_avatar_404_for_missing_agent(client):
+    with patch(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        side_effect=ValueError("Agent 'ghost' not found"),
+    ):
+        response = client.get("/api/agents/ghost/avatar.svg")
+
+    assert response.status_code == 404
+
+
 async def test_get_agent_loads_config_off_event_loop(monkeypatch):
     """Route config reads through ``run_sync_io``."""
     cfg = AgentProfileConfig(

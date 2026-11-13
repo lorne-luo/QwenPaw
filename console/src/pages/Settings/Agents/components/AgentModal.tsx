@@ -19,6 +19,7 @@ import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import styles from "../index.module.less";
+import { AgentIconPicker } from "@/components/AgentAvatar/AgentIconPicker";
 import { AgentBackendFields } from "./AgentBackendFields";
 import {
   MAIL_DOMAIN_PICKER_DOMAINS,
@@ -28,25 +29,6 @@ import {
 import { useFocusOnOpen } from "../../../../hooks/useFocusOnOpen";
 
 const { Text } = Typography;
-
-const AGENT_ICON_PRESETS = [
-  "🤖",
-  "🦊",
-  "🐱",
-  "🐶",
-  "🦉",
-  "🐼",
-  "🦄",
-  "🐙",
-  "🚀",
-  "💡",
-  "🧠",
-  "🔧",
-  "📊",
-  "📝",
-  "🎨",
-  "🛡️",
-];
 
 const MAIL_DOMAIN_OPTIONS = MAIL_DOMAIN_PICKER_DOMAINS.map((domain) => ({
   value: domain,
@@ -238,28 +220,12 @@ export function AgentModal({
         >
           <Input placeholder={t("agent.namePlaceholder")} />
         </Form.Item>
-        <Form.Item label={t("agent.icon")} help={t("agent.iconHelp")}>
-          <Form.Item name="icon" noStyle>
-            <Input
-              maxLength={8}
-              allowClear
-              placeholder={t("agent.iconPlaceholder")}
-              style={{ width: 160 }}
-            />
-          </Form.Item>
-          <Space wrap size={4} style={{ marginTop: 8, display: "flex" }}>
-            {AGENT_ICON_PRESETS.map((emoji) => (
-              <Button
-                key={emoji}
-                size="small"
-                type="text"
-                aria-label={emoji}
-                onClick={() => form.setFieldValue("icon", emoji)}
-              >
-                {emoji}
-              </Button>
-            ))}
-          </Space>
+        <Form.Item
+          name="icon"
+          label={t("agent.icon")}
+          help={t("agent.iconHelp")}
+        >
+          <AgentIconPicker />
         </Form.Item>
         <Form.Item name="description" label={t("agent.description")}>
           <Input.TextArea

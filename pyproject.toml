@@ -88,6 +88,7 @@ include-package-data = true
     "local_models/runtime-release.json",
     "official_channels/*.json",
     "official_channels/*.zip",
+    "app/agent_avatar_icons.json",
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",

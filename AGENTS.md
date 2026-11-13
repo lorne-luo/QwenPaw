@@ -149,6 +149,11 @@ React 18 + Vite + Zustand + antd, alias `@` → `console/src`. `pages/` (Chat, C
 Inbox, Agent, Settings, AppCenter), `os/` (the desktop-shell UI with Dock / Launcher / window host),
 `api/modules/*.ts` (one module per backend router, each with a colocated `.test.ts`), `stores/`.
 
+Agent avatars (`icon` = `lucide:<name>:<color>`): `components/AgentAvatar/presets.ts` is the only list
+of allowed icons and colors. After editing it, run `node scripts/export-agent-icons.mjs` in `console/` to
+regenerate `src/qwenpaw/app/agent_avatar_icons.json`, which `GET /api/agents/{id}/avatar.svg` draws
+from for native clients; `presets.test.ts` fails while the two disagree.
+
 Vitest aliases the heavy `@agentscope-ai/chat` and `@agentscope-ai/design` packages to stubs in
 `src/test/` to avoid OOM, and stubs `node_modules` CSS — that stub plugin must never run for real
 builds, since removing monaco's stylesheet breaks Coding Mode's editor.

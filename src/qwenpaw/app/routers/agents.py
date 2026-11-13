@@ -4,6 +4,7 @@
 Provides RESTful API for managing multiple agent instances.
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -14,7 +15,14 @@ from pathlib import Path
 from contextlib import nullcontext
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -63,6 +71,7 @@ from ...agents.utils import (
 )
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...harnesses.registry import ProviderCatalogItem, get_provider
+from ..agent_avatar import render_avatar_svg
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -769,6 +778,37 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get(
+    "/{agentId}/avatar.svg",
+    summary="Get agent avatar",
+    description=(
+        "The agent's lucide avatar as a full-bleed SVG tile; 404 when the "
+        "agent has no lucide icon (emoji or unset)"
+    ),
+    response_class=Response,
+    responses={200: {"content": {"image/svg+xml": {}}}},
+)
+async def get_agent_avatar(
+    request: Request,
+    agentId: str = PathParam(...),
+) -> Response:
+    """Serve the avatar SVG so native clients need no lucide copy."""
+    try:
+        agent_config = await run_sync_io(load_agent_config, agentId)
+    except (ValueError, AppBaseException) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    svg = render_avatar_svg(agent_config.icon)
+    if svg is None:
+        raise HTTPException(status_code=404, detail="Agent has no avatar")
+    etag = f'"{hashlib.sha256(svg.encode()).hexdigest()[:16]}"'
+    # no-cache + ETag: clients revalidate cheaply, so an icon change shows
+    # up without a cache-busting URL.
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(svg, media_type="image/svg+xml", headers=headers)
 
 
 @router.patch(

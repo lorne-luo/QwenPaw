@@ -49,6 +49,7 @@ from .auth import (
     check_proxy_config_sanity,
 )
 from .exception_handlers import register_exception_handlers
+from . import mobile_push
 from .response_compression import ResponseCompressionMiddleware
 from .migration import (
     ensure_default_agent_exists,
@@ -439,6 +440,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # WorkspaceRegistry IS-A MultiAgentManager — backward compat for
     # routers / agent_context that read app.state.multi_agent_manager.
     app.state.multi_agent_manager = workspace_registry
+    mobile_push.set_registry(workspace_registry)
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
     app.state.backup_manager = backup_manager

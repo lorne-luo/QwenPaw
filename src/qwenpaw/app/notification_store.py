@@ -8,6 +8,8 @@ import uuid
 from collections import deque
 from typing import Any
 
+from . import mobile_push
+
 _EVENTS: deque[dict[str, Any]] = deque(maxlen=500)
 _MAX_AGE_SECONDS = 300
 
@@ -33,6 +35,13 @@ def publish(
             f"session_id": session_id,
             f"inbox_event_id": event_id,
         },
+    )
+    mobile_push.publish_event(
+        category=category,
+        agent_id=agent_id,
+        title=title,
+        body=body,
+        session_id=session_id,
     )
 
 

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 from .models import ApprovalRequestSummary
+from .. import mobile_push
 from ...plugins._events import approval_changed as _sdk_approval_changed
 
 if TYPE_CHECKING:
@@ -226,6 +227,7 @@ class ApprovalService:
             self._pending[request_id] = pending
             self._gc_pending_locked()
             _sdk_approval_changed(pending)
+        mobile_push.publish_approval(pending)
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
@@ -298,6 +300,7 @@ class ApprovalService:
             self._pending[request_id] = pending
             self._gc_pending_locked()
             _sdk_approval_changed(pending)
+        mobile_push.publish_approval(pending)
         logger.info(
             "Generic approval pending created: request_id=%s agent_id=%s "
             "name=%s source=%s session=%s root=%s",

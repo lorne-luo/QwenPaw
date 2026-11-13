@@ -101,9 +101,36 @@ trap summary EXIT
 # purpose: precompress only writes the .br/.gz copies that hub mode serves, and
 # the bundle guard measures its Brotli budget on those copies (without them it
 # compares the raw size against that budget and always fails).
+# npm records the installed tree in node_modules/.package-lock.json; when the
+# lockfile or package.json is newer (pull, rebase), dependencies are stale.
+deps_stale() {
+  local installed="$CONSOLE_DIR/node_modules/.package-lock.json"
+  [ ! -f "$installed" ] ||
+    [ "$CONSOLE_DIR/package-lock.json" -nt "$installed" ] ||
+    [ "$CONSOLE_DIR/package.json" -nt "$installed" ]
+}
+install_deps() { (cd "$CONSOLE_DIR" && npm install --no-audit --no-fund); }
 typecheck() { (cd "$CONSOLE_DIR" && "$BIN_DIR/tsc" -b); }
 bundle() { (cd "$CONSOLE_DIR" && "$BIN_DIR/vite" build); }
 verify_monaco() { (cd "$CONSOLE_DIR" && node scripts/verify-monaco-css.mjs); }
+
+# A branch switch or rebase can change pyproject.toml/uv.lock while the running
+# service still has the old code loaded; the next restart then dies on a missing
+# module. The stamp records the last successful install.
+VENV_PY="$REPO_DIR/.venv/bin/python"
+PY_DEPS_STAMP="$REPO_DIR/.venv/.run-sh-deps-stamp"
+# cron's PATH lacks ~/.local/bin, where uv lives.
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+py_deps_stale() {
+  [ ! -f "$PY_DEPS_STAMP" ] ||
+    [ "$REPO_DIR/pyproject.toml" -nt "$PY_DEPS_STAMP" ] ||
+    [ "$REPO_DIR/uv.lock" -nt "$PY_DEPS_STAMP" ]
+}
+# Additive on purpose (not `uv sync`): never removes packages from the venv.
+install_py_deps() {
+  (cd "$REPO_DIR" && "$UV" pip install --python "$VENV_PY" -e ".[dev,test,full]") &&
+    touch "$PY_DEPS_STAMP"
+}
 
 restart_service() { sudo systemctl restart "$SERVICE"; }
 
@@ -120,6 +147,11 @@ wait_healthy() {
 }
 
 if [ "$do_build" -eq 1 ]; then
+  if deps_stale; then
+    stage "npm install" install_deps
+  else
+    log "npm install skipped (node_modules up to date)"
+  fi
   stage "tsc -b" typecheck
   stage "vite build" bundle
   stage "verify monaco css" verify_monaco
@@ -127,6 +159,11 @@ if [ "$do_build" -eq 1 ]; then
 fi
 
 if [ "$do_restart" -eq 1 ]; then
+  if py_deps_stale; then
+    stage "uv pip install" install_py_deps
+  else
+    log "uv pip install skipped (venv up to date)"
+  fi
   stage "systemctl restart $SERVICE" restart_service
   stage "health check" wait_healthy
   log "$SERVICE is healthy"

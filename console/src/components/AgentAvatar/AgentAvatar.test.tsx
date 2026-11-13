@@ -26,4 +26,26 @@ describe("AgentAvatar", () => {
       expect(container.querySelector("span")).toBeNull();
     },
   );
+
+  it("renders a lucide value as a gradient badge with a white glyph", () => {
+    const { container } = render(
+      <AgentAvatar icon="lucide:telescope:indigo" size={20} />,
+    );
+    const badge = container.firstElementChild as HTMLElement;
+    expect(badge.tagName).toBe("SPAN");
+    expect(badge.style.width).toBe("20px");
+    expect(badge.style.background).toContain("rgb(129, 140, 248)");
+    const svg = badge.querySelector("svg");
+    expect(svg).toHaveClass("lucide-telescope");
+    expect(svg).toHaveAttribute("width", "13");
+  });
+
+  it("falls back to the bot glyph and default color for unknown parts", () => {
+    const { container } = render(
+      <AgentAvatar icon="lucide:no-such-icon:no-such-color" size={20} />,
+    );
+    const badge = container.firstElementChild as HTMLElement;
+    expect(badge.style.background).toContain("rgb(96, 165, 250)");
+    expect(badge.querySelector("svg")).toHaveClass("lucide-bot");
+  });
 });

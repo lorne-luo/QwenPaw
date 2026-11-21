@@ -140,8 +140,7 @@ The shadow repository is completely separate from a project `.git/`. It never cr
 ```mermaid
 flowchart LR
     A[Response and session save complete] --> B{Automatic checkpoints on?}
-    B -- Yes --> C[Wait for debounce]
-    C --> D[Write to shadow Git]
+    B -- Yes --> D[Write to shadow Git]
     E[Create a manual snapshot] --> D
     D --> F[Timeline / graph]
     F --> G[Preview restore]
@@ -157,7 +156,7 @@ Logical parent metadata records the relationship between checkpoints, allowing t
 
 | Type                                       | Created by                                                                                         | Retention                          |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **Automatic checkpoint** (auto)            | Created in the background after a successful non-command response when automatic saves are enabled | Cleaned according to count and age |
+| **Automatic checkpoint** (auto)            | Created after a successful non-command response when automatic saves are enabled                   | Cleaned according to count and age |
 | **Named snapshot** (snapshot)              | Click **Create snapshot** in the Console or run `/checkpoint snapshot`                             | Never removed by automatic GC      |
 | **Pre-restore safety point** (pre-restore) | Created automatically before every applied restore                                                 | Kept for 7 days by default         |
 
@@ -180,9 +179,8 @@ Once enabled, QwenPaw creates an automatic checkpoint when all of the following 
 1. The Agent response completed successfully.
 2. The current session was saved successfully.
 3. The user input was not a command beginning with `/`.
-4. The debounce interval since this session's last automatic checkpoint has elapsed; the default is 1.5 seconds.
 
-Creation runs in the background. If several responses finish close together, debouncing coalesces them to avoid redundant checkpoints.
+The checkpoint is written before the reply finishes, so the next queued message never runs ahead of it. A session that has no checkpoint yet also gets a baseline checkpoint just before its next prompt runs, so even the first prompt can be rewound together with its files (see [Rewind to a prompt](#rewind-to-a-prompt)).
 
 ---
 
@@ -196,6 +194,25 @@ In the Console, click **Create snapshot** and enter a name. You can also run:
 ```
 
 If you omit the name, QwenPaw generates one. Names are normalized into safe ref names; when a session already has the same name, QwenPaw appends a numeric suffix.
+
+---
+
+### Rewind to a prompt
+
+In the Console chat, every user prompt has a **Rewind to here** button next to **Copy** (QwenPaw agents only). Rewinding removes that prompt and everything after it, then puts the prompt back in the input box so you can edit and resend it.
+
+If automatic checkpoints were on when the prompt ran, the confirmation also lists the workspace files that changed since then and offers to restore them. They come from the checkpoint taken when the conversation last ended right before that prompt. A pre-restore safety point is created first, as with any file restore.
+
+Files can be restored only inside the Agent workspace. Project directories bound in Coding Mode, and side effects of shell commands outside the workspace, are not rewound. If no checkpoint from before the prompt exists (automatic checkpoints were off, the previous turn was stopped, or the checkpoint was garbage-collected), only the conversation is rewound.
+
+Clients can call the same API:
+
+```text
+POST /api/chats/{chat_id}/rewind
+{"message_id": "...", "include_files": true, "dry_run": false}
+```
+
+Identify the prompt by `message_id` (history `metadata.original_id`) or `client_message_id` (`qwenpaw_client_message_id`). `dry_run: true` only previews. The reply holds `prompt_text`, `removed_count`, `files_available`, `file_paths`, `files_restored` and `pre_restore_ref`. A running chat answers `409`.
 
 ---
 
@@ -400,7 +417,7 @@ include_memory_quiesce_timeout = 30.0
 | `gc_keep_days`                   | Age-based retention for automatic checkpoints               |
 | `pre_restore_retention_days`     | Retention for pre-restore safety points                     |
 | `enabled`                        | Whether automatic checkpoints are enabled                   |
-| `debounce_seconds`               | Per-session debounce interval for automatic checkpoints     |
+| `debounce_seconds`               | Ignored; automatic checkpoints are taken without delay      |
 | `default_limit` / `max_limit`    | Default and maximum timeline result counts                  |
 | `query_preview_chars`            | Maximum user-query preview length in the timeline           |
 | `include_memory_quiesce_timeout` | Maximum seconds to wait for internal tasks before restore   |

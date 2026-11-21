@@ -127,6 +127,10 @@ class HarnessCapabilities:
     provider_mcp_discovery: bool = False
     mcp_tool_allowlist: bool = False
     external_history: bool = False
+    # The backend parses slash commands itself. The host then hands an
+    # unlisted command to run_turn verbatim instead of rejecting it, so
+    # ``commands`` becomes a discoverability hint rather than a whitelist.
+    passthrough_commands: bool = False
     commands: tuple[HarnessCommand, ...] = ()
     approval_presets: tuple[HarnessApprovalPreset, ...] = ()
 

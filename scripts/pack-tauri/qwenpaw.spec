@@ -256,6 +256,7 @@ a = Analysis(
         "openai_codex",
         "codex_cli_bin",
         "qoder_agent_sdk",
+        "claude_agent_sdk",
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",

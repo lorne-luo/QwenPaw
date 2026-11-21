@@ -1222,6 +1222,21 @@
       "clear": {
         "description": "Xóa ngữ cảnh cuộc trò chuyện"
       },
+      "init": {
+        "description": "Tạo hoặc làm mới CLAUDE.md với tài liệu mã nguồn"
+      },
+      "context": {
+        "description": "Xem mức sử dụng ngữ cảnh hiện tại"
+      },
+      "usage": {
+        "description": "Xem chi phí phiên và mức dùng gói"
+      },
+      "doctor": {
+        "description": "Kiểm tra tình trạng cài đặt Claude Code"
+      },
+      "mcp": {
+        "description": "Quản lý máy chủ MCP cho phiên này"
+      },
       "compact": {
         "description": "Nén ngữ cảnh trò chuyện; hỗ trợ lệnh tùy chọn"
       },

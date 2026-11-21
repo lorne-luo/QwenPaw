@@ -68,6 +68,10 @@ export interface SharedSettingsProps extends HarnessSettingsProps {
   text: HarnessText;
   loginMode: "browser" | "external";
   canDisconnect?: (status: HarnessStatus) => boolean;
+  /** False hides Connect for a backend whose sign-in must run on the host. */
+  canConnect?: boolean;
+  /** Backend-specific fields rendered between the executable and account. */
+  children?: React.ReactNode;
 }
 
 export function Settings({
@@ -79,6 +83,8 @@ export function Settings({
   text,
   loginMode,
   canDisconnect,
+  canConnect = true,
+  children,
 }: SharedSettingsProps) {
   const {
     status,
@@ -173,6 +179,7 @@ export function Settings({
           {text.notFound}
         </p>
       )}
+      {children}
       <div className="accountRow">
         <div className="accountState">
           <strong className="accountLabel">{text.account}</strong>
@@ -192,7 +199,7 @@ export function Settings({
           </span>
         </div>
         <div className="accountAction">
-          {!status?.authenticated && (
+          {!status?.authenticated && canConnect && (
             <Button
               icon={
                 <ExternalLink size={14} aria-hidden="true" focusable="false" />

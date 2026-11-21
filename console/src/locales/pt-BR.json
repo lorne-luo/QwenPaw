@@ -3637,6 +3637,21 @@
       "clear": {
         "description": "Limpar the conversation context"
       },
+      "init": {
+        "description": "Criar ou atualizar o CLAUDE.md com documentação do código"
+      },
+      "context": {
+        "description": "Mostrar o uso atual de contexto"
+      },
+      "usage": {
+        "description": "Mostrar o custo da sessão e o uso do plano"
+      },
+      "doctor": {
+        "description": "Verificar a saúde da instalação do Claude Code"
+      },
+      "mcp": {
+        "description": "Gerenciar servidores MCP desta sessão"
+      },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"
       },

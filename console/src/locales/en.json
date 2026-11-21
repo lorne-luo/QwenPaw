@@ -4299,6 +4299,21 @@
       "clear": {
         "description": "Clear the conversation context"
       },
+      "init": {
+        "description": "Create or refresh CLAUDE.md with codebase documentation"
+      },
+      "context": {
+        "description": "Show current context usage"
+      },
+      "usage": {
+        "description": "Show session cost and plan usage"
+      },
+      "doctor": {
+        "description": "Health-check the Claude Code installation"
+      },
+      "mcp": {
+        "description": "Manage MCP servers for this session"
+      },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"
       },

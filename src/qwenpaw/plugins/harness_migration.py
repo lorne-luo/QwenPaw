@@ -17,6 +17,7 @@ from .loader import PluginLoader
 _LEGACY_PLUGINS = {
     "codex": "qwenpaw-harness-codex",
     "qoder": "qwenpaw-harness-qoder",
+    "claude": "qwenpaw-harness-claude",
 }
 
 

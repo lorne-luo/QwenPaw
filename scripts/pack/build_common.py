@@ -174,7 +174,8 @@ def main() -> int:
                 "-c",
                 "from importlib.util import find_spec; "
                 "assert not any(find_spec(name) for name in "
-                "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk')), "
+                "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk', "
+                "'claude_agent_sdk')), "
                 "'Optional Harness SDK found in default desktop environment'",
             ],
         )

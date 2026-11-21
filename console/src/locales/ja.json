@@ -3380,6 +3380,21 @@
       "clear": {
         "description": "会話のコンテキストをクリア"
       },
+      "init": {
+        "description": "CLAUDE.md を作成または更新してコードベースを文書化"
+      },
+      "context": {
+        "description": "現在のコンテキスト使用量を表示"
+      },
+      "usage": {
+        "description": "セッションの費用とプラン使用量を表示"
+      },
+      "doctor": {
+        "description": "Claude Code のインストール状態を診断"
+      },
+      "mcp": {
+        "description": "このセッションの MCP サーバーを管理"
+      },
       "compact": {
         "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"
       },

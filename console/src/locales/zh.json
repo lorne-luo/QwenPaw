@@ -4151,6 +4151,21 @@
       "clear": {
         "description": "清空对话上下文"
       },
+      "init": {
+        "description": "生成或刷新 CLAUDE.md 代码库文档"
+      },
+      "context": {
+        "description": "查看当前上下文用量"
+      },
+      "usage": {
+        "description": "查看会话费用与套餐用量"
+      },
+      "doctor": {
+        "description": "检查 Claude Code 安装状态"
+      },
+      "mcp": {
+        "description": "管理本次会话的 MCP 服务"
+      },
       "compact": {
         "description": "压缩对话上下文并生成摘要，支持附带说明"
       },

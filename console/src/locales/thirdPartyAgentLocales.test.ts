@@ -11,7 +11,11 @@ import zh from "./zh.json";
 const pluginLocales = import.meta.glob<{
   localMessages(locale: string): Record<string, string>;
 }>("../../../plugins/harness/*/frontend/src/locale.ts", { eager: true });
-const [codexMessages, qoderMessages] = ["codex", "qoder"].map(
+const [codexMessages, qoderMessages, claudeMessages] = [
+  "codex",
+  "qoder",
+  "claude",
+].map(
   (backend) =>
     pluginLocales[`../../../plugins/harness/${backend}/frontend/src/locale.ts`]
       .localMessages,
@@ -74,6 +78,11 @@ const requiredPaths = [
   "chat.commands.agents.description",
   "chat.commands.review.description",
   "chat.commands.status.description",
+  "chat.commands.init.description",
+  "chat.commands.context.description",
+  "chat.commands.usage.description",
+  "chat.commands.doctor.description",
+  "chat.commands.mcp.description",
 ] as const;
 
 const thirdPartyAgentTerminologyPaths = [
@@ -127,6 +136,7 @@ describe("third-party agent locale coverage", () => {
       for (const messages of [
         codexMessages(localeName),
         qoderMessages(localeName),
+        claudeMessages(localeName),
       ]) {
         for (const key of [
           "hint",

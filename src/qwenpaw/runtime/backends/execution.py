@@ -521,7 +521,10 @@ class BackendExecution:
                             HarnessEvent(HarnessEventKind.COMPLETED),
                         ),
                     )
-                elif command:
+                elif (
+                    command
+                    and not entry.spec.capabilities.passthrough_commands
+                ):
                     if command not in {
                         item.name for item in entry.spec.capabilities.commands
                     }:

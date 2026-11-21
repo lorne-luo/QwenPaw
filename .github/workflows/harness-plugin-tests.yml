@@ -68,7 +68,7 @@ jobs:
         run: |
           python -m pip install --upgrade "pip>=26.2.2"
           python -m pip install -e ".[test]" build mypy wheel
-          python -c "from importlib.util import find_spec; assert all(find_spec(name) is None for name in ('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk'))"
+          python -c "from importlib.util import find_spec; assert all(find_spec(name) is None for name in ('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk', 'claude_agent_sdk'))"
       - name: Build independent Harness frontends using public SDK
         run: bash scripts/pack/build_harness_frontends.sh
       - name: Verify core SDK, runtime and ZIP packaging
@@ -84,6 +84,7 @@ jobs:
           --plugins-root plugins --dist dist/plugins
           --metadata-out dist/plugins/index.json --cdn-prefix /files/plugins
           --only qwenpaw-harness-codex --only qwenpaw-harness-qoder
+          --only qwenpaw-harness-claude
       - uses: actions/upload-artifact@v4
         with:
           name: harness-plugin-archives
@@ -115,7 +116,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        vendor: [codex, qoder]
+        vendor: [codex, qoder, claude]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -157,6 +158,11 @@ jobs:
               binary = Path(bundled_codex_path())
               assert importlib.util.find_spec("qoder_agent_sdk") is None
               importlib.import_module("openai_codex")
+          elif os.environ["HARNESS_VENDOR"] == "claude":
+              module = importlib.import_module("claude_agent_sdk")
+              name = "claude.exe" if os.name == "nt" else "claude"
+              binary = Path(module.__file__).parent / "_bundled" / name
+              assert importlib.util.find_spec("qoder_agent_sdk") is None
           else:
               module = importlib.import_module("qoder_agent_sdk")
               name = "qodercli.exe" if os.name == "nt" else "qodercli"

@@ -1,0 +1,18 @@
+.harness-settings .envField {
+  margin: 4px 2px 10px;
+}
+.harness-settings .envList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.harness-settings .envRow {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.harness-settings .envAdd {
+  align-self: flex-start;
+}

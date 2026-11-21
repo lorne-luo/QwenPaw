@@ -136,6 +136,7 @@ def main():
                         "openai_codex/",
                         "codex_cli_bin/",
                         "qoder_agent_sdk/",
+                        "claude_agent_sdk/",
                     ),
                 )
                 for name in names
@@ -153,9 +154,14 @@ def main():
                     "openai-codex-cli-bin",
                     "codex-cli-bin",
                     "qoder-agent-sdk",
+                    "claude-agent-sdk",
                 }, "Optional Harness dependency required by core wheel"
                 if requirement.name.lower() == "qwenpaw":
-                    assert not {"codex", "qoder"} & requirement.extras
+                    assert not {
+                        "codex",
+                        "qoder",
+                        "claude",
+                    } & requirement.extras
             assert "qwenpaw/plugins/frontend/package.json" in names
             assert "qwenpaw/plugins/frontend/index.js" in names
             assert "qwenpaw/plugins/templates/hello/plugin.json" in names
@@ -203,7 +209,8 @@ print(json.dumps({{
         "from qwenpaw.app._app import app; "
         "assert app is not None; "
         "assert all(find_spec(name) is None for name in "
-        "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk'))",
+        "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk', "
+        "'claude_agent_sdk'))",
     )
     typing_source = source / "tests/typing/plugin_sdk_author.py"
     shutil.copy2(typing_source, root / typing_source.name)

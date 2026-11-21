@@ -819,6 +819,44 @@ async def test_cancel_releases_busy_owner_and_next_turn_runs(host):
     assert removed.clean and removed.quiescent
 
 
+@pytest.mark.parametrize("passthrough", [False, True])
+async def test_unlisted_command_reaches_only_a_passthrough_backend(
+    tmp_path,
+    passthrough,
+):
+    source = package(tmp_path)
+    if passthrough:
+        main = source / "main.py"
+        main.write_text(
+            main.read_text(encoding="utf-8").replace(
+                "HarnessCapabilities(external_history=True)",
+                "HarnessCapabilities("
+                "external_history=True, passthrough_commands=True)",
+            ),
+            encoding="utf-8",
+        )
+    async with PluginTestHost(tmp_path / "host") as test_host:
+        assert (await test_host.install(source)).ok
+        runtime = (await test_host._workspace("one")).backend_runtime
+        response = (await collect(runtime, "/init extra words"))[-1]
+        backend = plugin(test_host).created[0]
+        if passthrough:
+            # The backend parses commands itself: the raw prompt streams
+            # through run_turn instead of the host's whitelist.
+            assert response.status == "completed"
+            assert backend.last_request.prompt == "/init extra words"
+        else:
+            assert response.status == "failed"
+            assert response.error["message"] == (
+                "Unsupported Codex command: /init"
+            )
+            assert not hasattr(backend, "last_request")
+        # The host keeps owning /clear either way.
+        response = (await collect(runtime, "/clear"))[-1]
+        assert backend.resets == 1
+        assert response.output[-1].metadata["clear_history"] is True
+
+
 @pytest.mark.parametrize("path", ["stream", "agent-request"])
 async def test_config_io_keeps_single_worker_loop_responsive(
     host,

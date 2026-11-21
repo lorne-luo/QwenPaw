@@ -523,10 +523,21 @@ class RestoreService:
             include_files=include_files,
             memory=memory,
         )
-        conversation = self.repository.read_blob(
+        if self.repository.run_git(
+            "ls-tree",
+            "--name-only",
             entry.commit,
+            "--",
             conversation_path,
-        )
+        ):
+            conversation = self.repository.read_blob(
+                entry.commit,
+                conversation_path,
+            )
+        else:
+            # The session did not exist yet (a baseline taken before the
+            # first prompt): restoring it means an empty conversation.
+            conversation = b"{}"
         return _PreparedRestore(
             entry=entry,
             previous_head=previous_head,

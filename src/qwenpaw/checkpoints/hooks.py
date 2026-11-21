@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 
 from ..hooks.base import LifecycleHook
+from ..hooks.session.session_hook import _is_ephemeral_request
 from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
@@ -52,8 +53,32 @@ class CheckpointQueryGateHook(LifecycleHook):
         return HookResult()
 
 
+class CheckpointBaselineHook(LifecycleHook):
+    """Snapshot a session's workspace before its first checkpointed turn."""
+
+    phase = Phase.PRE_EXECUTE
+    name = "checkpoint_baseline"
+    priority = 95
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        try:
+            if ctx.workspace is None or _is_ephemeral_request(ctx):
+                return HookResult()
+            if is_slash_like_input(_last_user_text(ctx)):
+                return HookResult()
+            await RUNTIME.baseline_snapshot(
+                ctx.workspace,
+                session_id=ctx.session_id,
+                user_id=_request_user_id(ctx),
+                channel=context_channel(ctx),
+            )
+        except Exception:
+            logger.exception("Checkpoint PRE_EXECUTE baseline failed")
+        return HookResult()
+
+
 class CheckpointAutoSnapshotHook(LifecycleHook):
-    """Schedule debounced auto checkpoints after session persistence."""
+    """Take an auto checkpoint after session persistence."""
 
     phase = Phase.POST_RESPONSE
     name = "checkpoint_auto_snapshot"
@@ -69,7 +94,7 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
             text = _last_user_text(ctx)
             if is_slash_like_input(text):
                 return HookResult()
-            await RUNTIME.schedule_auto_snapshot(
+            await RUNTIME.auto_snapshot(
                 ctx.workspace,
                 session_id=ctx.session_id,
                 user_id=_request_user_id(ctx),
@@ -83,6 +108,7 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
 
 __all__ = [
     "CheckpointAutoSnapshotHook",
+    "CheckpointBaselineHook",
     "CheckpointQueryGateHook",
     "is_slash_like_input",
 ]

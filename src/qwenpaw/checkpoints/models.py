@@ -28,6 +28,9 @@ class CheckpointEntry:
     is_head: bool = False
     user_id: str = ""
     session_id: str = ""
+    # Newest conversation message when the snapshot was taken ("" for an
+    # empty session, None when unknown). Rewind matches prompts by it.
+    last_message_id: str | None = None
 
 
 @dataclass(frozen=True)

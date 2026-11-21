@@ -88,6 +88,7 @@ class WorkspaceBootstrapFactory:
             )
             from ...checkpoints.hooks import (
                 CheckpointAutoSnapshotHook,
+                CheckpointBaselineHook,
                 CheckpointQueryGateHook,
             )
 
@@ -106,6 +107,7 @@ class WorkspaceBootstrapFactory:
                 ErrorNormalizeHook,
                 CancelCleanupHook,
                 CheckpointQueryGateHook,
+                CheckpointBaselineHook,
                 CheckpointAutoSnapshotHook,
                 MailF1CleanupHook,
             ]

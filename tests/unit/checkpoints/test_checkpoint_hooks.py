@@ -42,7 +42,7 @@ async def test_auto_snapshot_requires_successfully_persisted_session(
     async def schedule(*_args, **kwargs) -> None:
         scheduled.append(kwargs)
 
-    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
+    monkeypatch.setattr(RUNTIME, "auto_snapshot", schedule)
 
     await CheckpointAutoSnapshotHook().run(_ctx(persisted=True))
 
@@ -65,7 +65,7 @@ async def test_auto_snapshot_skips_slash_like_input(
         nonlocal scheduled
         scheduled = True
 
-    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
+    monkeypatch.setattr(RUNTIME, "auto_snapshot", schedule)
     ctx = _ctx(persisted=True)
     ctx.input_msgs = [
         SimpleNamespace(get_text_content=lambda: "  /help"),
@@ -95,7 +95,7 @@ async def test_auto_snapshot_skips_unpersisted_and_ephemeral_requests(
         nonlocal scheduled
         scheduled = True
 
-    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
+    monkeypatch.setattr(RUNTIME, "auto_snapshot", schedule)
 
     await CheckpointAutoSnapshotHook().run(
         _ctx(persisted=persisted, ephemeral=ephemeral),

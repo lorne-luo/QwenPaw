@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentscope.message import Msg
 from agentscope.state import AgentState
@@ -27,6 +28,7 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .rewind import RewindError, rewind_chat
 from .resolver import (
     ChatResolution,
     find_chat_matches,
@@ -821,6 +823,89 @@ async def set_chat_model(
 
 
 # ----- Existing CRUD endpoints -----
+
+
+class RewindRequest(BaseModel):
+    """Rewind target: the user prompt to rewind to, by either id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: Optional[str] = Field(
+        default=None,
+        description="Backend message id (history metadata.original_id)",
+    )
+    client_message_id: Optional[str] = Field(
+        default=None,
+        description="qwenpaw_client_message_id the sending client attached",
+    )
+    include_files: bool = Field(
+        default=False,
+        description="Also restore workspace files the prompt's turns changed",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Only report what would change",
+    )
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "RewindRequest":
+        if not (self.message_id or self.client_message_id):
+            raise ValueError("message_id or client_message_id is required")
+        return self
+
+
+class RewindResponse(BaseModel):
+    """What a rewind removed and restored (or would, for a dry run)."""
+
+    dry_run: bool
+    prompt_text: str = Field(description="Text of the rewound prompt")
+    removed_count: int = Field(
+        description="Conversation messages removed, the prompt included",
+    )
+    files_available: bool = Field(
+        description="Whether a checkpoint from before the prompt exists",
+    )
+    file_paths: list[str] = Field(
+        description="Workspace files that differ from that checkpoint",
+    )
+    files_restored: bool
+    pre_restore_ref: Optional[str] = Field(
+        default=None,
+        description="Checkpoint saving the files as they were before",
+    )
+
+
+@router.post("/{chat_id}/rewind", response_model=RewindResponse)
+async def rewind_chat_to_prompt(
+    chat_id: str,
+    body: RewindRequest,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> RewindResponse:
+    """Remove a user prompt and everything after it from the chat.
+
+    The prompt text comes back so the client can refill its input box.
+    With ``include_files``, workspace files go back to the checkpoint taken
+    before the prompt ran.
+    """
+    chat_spec = await mgr.get_chat(chat_id)
+    if not chat_spec:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    try:
+        result = await rewind_chat(
+            workspace,
+            chat_spec,
+            message_id=body.message_id,
+            client_message_id=body.client_message_id,
+            include_files=body.include_files,
+            dry_run=body.dry_run,
+        )
+    except RewindError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return RewindResponse(**asdict(result))
 
 
 @router.get("/{chat_id}/status", response_model=ChatStatusResponse)

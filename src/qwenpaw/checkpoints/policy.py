@@ -555,6 +555,38 @@ def latest_user_query(
     return None
 
 
+def last_context_message_id(
+    workspace_dir: Path,
+    *,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> str | None:
+    """Return the id of the newest persisted context message.
+
+    ``""`` means the session has no messages yet; ``None`` means the
+    session file could not be read, so the id is unknown.
+    """
+    path = session_file_path(
+        workspace_dir,
+        session_id=session_id,
+        user_id=user_id,
+        channel=channel,
+    )
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ""
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    context = _context_from_session_payload(state)
+    if not context:
+        return ""
+    last = context[-1]
+    message_id = last.get("id") if isinstance(last, dict) else None
+    return message_id if isinstance(message_id, str) else None
+
+
 def encode_metadata(
     query: str | None,
     *,
@@ -562,6 +594,7 @@ def encode_metadata(
     user_id: str | None = None,
     session_id: str | None = None,
     parent_commit: str | None = None,
+    last_message_id: str | None = None,
 ) -> str:
     """Encode metadata as a single UTF-8-safe commit-message line."""
     payload = json.dumps(
@@ -571,6 +604,7 @@ def encode_metadata(
             "user_id": user_id,
             "session_id": session_id,
             "parent": parent_commit,
+            "last_message_id": last_message_id,
         },
         ensure_ascii=False,
         separators=(",", ":"),

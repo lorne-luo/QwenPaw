@@ -43,25 +43,44 @@ class Debouncer:
 
         def _run() -> None:
             self._pending.pop(key, None)
-            task = asyncio.create_task(coro_factory())
-            self._tasks.add(task)
-            self._tasks_by_key.setdefault(key, set()).add(task)
-
-            def _done(completed: asyncio.Task[None]) -> None:
-                self._tasks.discard(completed)
-                keyed_tasks = self._tasks_by_key.get(key)
-                if keyed_tasks is None:
-                    return
-                keyed_tasks.discard(completed)
-                if not keyed_tasks:
-                    self._tasks_by_key.pop(key, None)
-
-            task.add_done_callback(_done)
+            self._start(key, coro_factory)
 
         self._pending[key] = loop.call_later(
             self.delay if delay is None else delay,
             _run,
         )
+
+    def run_now(
+        self,
+        key: str,
+        coro_factory: Callable[[], Coroutine[Any, Any, None]],
+    ) -> asyncio.Task[None]:
+        """Drop any pending timer for *key* and start the work now."""
+        handle = self._pending.pop(key, None)
+        if handle is not None:
+            handle.cancel()
+        return self._start(key, coro_factory)
+
+    def _start(
+        self,
+        key: str,
+        coro_factory: Callable[[], Coroutine[Any, Any, None]],
+    ) -> asyncio.Task[None]:
+        task = asyncio.create_task(coro_factory())
+        self._tasks.add(task)
+        self._tasks_by_key.setdefault(key, set()).add(task)
+
+        def _done(completed: asyncio.Task[None]) -> None:
+            self._tasks.discard(completed)
+            keyed_tasks = self._tasks_by_key.get(key)
+            if keyed_tasks is None:
+                return
+            keyed_tasks.discard(completed)
+            if not keyed_tasks:
+                self._tasks_by_key.pop(key, None)
+
+        task.add_done_callback(_done)
+        return task
 
     def cancel_pending(self, key: str) -> tuple[asyncio.Task[None], ...]:
         """Cancel a pending timer and return snapshots already running."""
@@ -193,7 +212,7 @@ class CheckpointRuntime:
                 self._last_auto_gc[key] = time.monotonic()
             return service
 
-    async def schedule_auto_snapshot(
+    async def auto_snapshot(
         self,
         workspace: Any,
         *,
@@ -205,8 +224,7 @@ class CheckpointRuntime:
         if not session_id:
             return
         service = await self.get_for_workspace_async(workspace)
-        auto_enabled, debounce_seconds = await service.auto_settings()
-        if not auto_enabled:
+        if not (await service.auto_settings())[0]:
             return
         key = session_key(
             channel=channel,
@@ -252,10 +270,41 @@ class CheckpointRuntime:
             except Exception:
                 logger.exception("Checkpoint auto snapshot failed")
 
-        self.debouncer.schedule(
-            debounce_key,
-            _snapshot,
-            delay=debounce_seconds,
+        # Rewind restores files from the snapshot taken after the previous
+        # turn, so it must land before the next turn can start. Run it
+        # through the debouncer only so session deletion still waits for it.
+        await self.debouncer.run_now(debounce_key, _snapshot)
+
+    async def baseline_snapshot(
+        self,
+        workspace: Any,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Snapshot a session that has no checkpoint yet, before its turn.
+
+        Every later prompt maps to the snapshot taken after the turn before
+        it; the first prompt has no such turn, so it gets this baseline.
+        """
+        if not session_id:
+            return
+        service = await self.get_for_workspace_async(workspace)
+        if not (await service.auto_settings())[0]:
+            return
+        key = session_key(
+            channel=channel,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if await run_sync_io(service.session_head, key) is not None:
+            return
+        await service.make_auto_checkpoint(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            message="Baseline before prompt",
         )
 
     async def flush_and_close_all(self) -> None:

@@ -29,6 +29,7 @@ from .policy import (
 )
 from .policy import (
     encode_metadata,
+    last_context_message_id,
     latest_user_query,
     metadata_from_commit_message,
     query_from_commit_message,
@@ -397,6 +398,12 @@ class CheckpointService:
             user_id=user_id,
             session_id=session_id,
             parent_commit=parent_commit,
+            last_message_id=last_context_message_id(
+                self.repository.workspace_dir,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            ),
         )
         commit = self.repository.run_git(
             "commit-tree",
@@ -451,6 +458,34 @@ class CheckpointService:
                     limit,
                     include_all,
                 )
+
+    async def latest_after_message(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        message_id: str,
+    ) -> CheckpointEntry | None:
+        """Return the newest checkpoint whose conversation ended at
+        *message_id* (``""`` matches a checkpoint of an empty session)."""
+
+        def _find() -> CheckpointEntry | None:
+            entries = self._timeline_sync(
+                session_id,
+                user_id,
+                channel,
+                self.timeline_max_limit,
+                False,
+            )
+            return next(
+                (e for e in entries if e.last_message_id == message_id),
+                None,
+            )
+
+        async with self.maintenance_lock:
+            async with self.lock:
+                return await run_sync_io(_find)
 
     async def graph_entries(
         self,
@@ -678,6 +713,9 @@ class CheckpointService:
         session_id = metadata.get("session_id")
         if not isinstance(session_id, str):
             session_id = ""
+        last_message_id = metadata.get("last_message_id")
+        if not isinstance(last_message_id, str):
+            last_message_id = None
         return CheckpointEntry(
             ref=ref,
             kind=kind,
@@ -693,6 +731,7 @@ class CheckpointService:
             is_head=is_head,
             user_id=user_id,
             session_id=session_id,
+            last_message_id=last_message_id,
         )
 
     def _entry_timestamp(self, ref: str, commit: str) -> int:

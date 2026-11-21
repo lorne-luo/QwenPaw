@@ -21,6 +21,25 @@ class _Settings(BaseModel):
     device_code: bool = False
 
 
+class _UserInputAnswer(BaseModel):
+    answers: list[str]
+
+
+class _UserInput(BaseModel):
+    session_id: str = Field(min_length=1)
+    answers: dict[str, _UserInputAnswer] = Field(default_factory=dict)
+
+
+_USER_INPUT_EXPIRED = {
+    "code": "user_input_expired",
+    "message": "This question is no longer waiting for an answer.",
+}
+_USER_INPUT_SESSION_MISMATCH = {
+    "code": "user_input_session_mismatch",
+    "message": "This question belongs to another chat session.",
+}
+
+
 def backend_catalog(registry):
     """Describe backends without discovery, status calls or factories."""
     rows = [
@@ -171,6 +190,36 @@ class _Gateway:
         @router.post("/{provider_id}/logout")
         async def logout(provider_id: str, body: _Settings, request: Request):
             await dispatch(provider_id, request, "logout", body.settings)
+            return {"ok": True}
+
+        @router.post("/{provider_id}/user-input/{request_id}")
+        async def user_input(
+            provider_id: str,
+            request_id: str,
+            body: _UserInput,
+            request: Request,
+        ):
+            # Backends signal "no longer waiting" with LookupError or
+            # TimeoutError and "another chat session" with PermissionError.
+            try:
+                await dispatch(
+                    provider_id,
+                    request,
+                    "resolve_user_input",
+                    session_id=body.session_id,
+                    request_id=request_id,
+                    answers={
+                        question_id: answer.model_dump()
+                        for question_id, answer in body.answers.items()
+                    },
+                )
+            except (LookupError, TimeoutError) as exc:
+                raise HTTPException(404, dict(_USER_INPUT_EXPIRED)) from exc
+            except PermissionError as exc:
+                raise HTTPException(
+                    409,
+                    dict(_USER_INPUT_SESSION_MISMATCH),
+                ) from exc
             return {"ok": True}
 
         def listing(operation, key):

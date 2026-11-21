@@ -57,6 +57,9 @@ class CodexAppServerClient:
         self._write_lock = asyncio.Lock()
         self._start_lock = asyncio.Lock()
         self._server_request_handler: ServerRequestHandler | None = None
+        # Bumped per spawned process: threads loaded into an old process are
+        # unknown to its replacement and must be resumed again.
+        self.generation = 0
 
     @property
     def installed(self) -> bool:
@@ -115,6 +118,7 @@ class CodexAppServerClient:
                         f"Could not launch Codex app-server: {exc}. "
                         "Repair the plugin or configure a valid executable.",
                     ) from exc
+                self.generation += 1
                 self._reader_task = asyncio.create_task(self._read_stdout())
                 self._stderr_task = asyncio.create_task(self._read_stderr())
                 await self.request(
@@ -172,6 +176,14 @@ class CodexAppServerClient:
             if method == "initialize":
                 raise CodexAppServerError("Codex app-server is not running")
             await self.start()
+        elif not self._reader_alive() and method != "initialize":
+            # The stdout reader died while the subprocess stayed alive, so
+            # nothing would ever resolve this request. start() replaces a
+            # process whose reader is gone, under its lock.
+            logger.warning(
+                "Codex stdout reader is gone; restarting app-server",
+            )
+            await self.start()
         self._request_id += 1
         request_id = self._request_id
         loop = asyncio.get_running_loop()
@@ -217,12 +229,25 @@ class CodexAppServerClient:
         """Remove a notification queue."""
         self._subscribers.discard(queue)
 
+    def publish(self, message: dict[str, Any]) -> None:
+        """Publish an internal notification to active turn subscribers."""
+        for queue in tuple(self._subscribers):
+            try:
+                queue.put_nowait(message)
+            except asyncio.QueueFull:
+                logger.warning("Dropped Codex notification for slow client")
+
     def set_server_request_handler(
         self,
         handler: ServerRequestHandler | None,
     ) -> None:
         """Set the callback used for app-server approval requests."""
         self._server_request_handler = handler
+
+    def _reader_alive(self) -> bool:
+        """Return whether the stdout reader can still deliver responses."""
+        task = self._reader_task
+        return task is not None and not task.done()
 
     async def stop(self) -> None:
         """Reap the process, readers, callbacks and outstanding RPC futures."""
@@ -268,11 +293,25 @@ class CodexAppServerClient:
             return
         error = CodexAppServerError("Codex app-server exited")
         try:
-            while line := await process.stdout.readline():
+            while True:
+                try:
+                    line = await process.stdout.readline()
+                except ValueError:
+                    # Line over the stream limit: asyncio already dropped
+                    # the buffer, so resync instead of killing the reader.
+                    logger.warning("Dropped oversized Codex message")
+                    continue
+                if not line:
+                    break
                 try:
                     message = json.loads(line)
-                except json.JSONDecodeError:
+                except ValueError:
+                    # Invalid JSON or invalid UTF-8: skip the line, keep the
+                    # reader that every session on this server shares.
                     logger.warning("Codex emitted invalid JSON")
+                    continue
+                if not isinstance(message, dict):
+                    logger.warning("Codex emitted a non-object message")
                     continue
                 await self._dispatch(message)
         except Exception as exc:  # pylint: disable=broad-except
@@ -299,7 +338,12 @@ class CodexAppServerClient:
             if future is None or future.done():
                 return
             if "error" in message:
-                detail = message["error"].get("message", "Unknown error")
+                error = message["error"]
+                detail = (
+                    error.get("message", "Unknown error")
+                    if isinstance(error, dict)
+                    else str(error)
+                )
                 future.set_exception(CodexAppServerError(f"{detail}"))
             else:
                 future.set_result(message.get("result"))
@@ -309,11 +353,7 @@ class CodexAppServerClient:
             self._server_tasks.add(task)
             task.add_done_callback(self._server_request_done)
             return
-        for queue in tuple(self._subscribers):
-            try:
-                queue.put_nowait(message)
-            except asyncio.QueueFull:
-                logger.warning("Dropped Codex notification for slow client")
+        self.publish(message)
 
     def _server_request_done(self, task):
         self._server_tasks.discard(task)

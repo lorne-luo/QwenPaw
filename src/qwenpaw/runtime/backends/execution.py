@@ -358,12 +358,20 @@ class BackendExecution:
             "history",
             "reset_session",
             "run_command",
+            # Optional: a backend without it answers 409 not supported.
+            "resolve_user_input",
         }:
             raise HarnessOperationNotSupportedError(
                 f"Unsupported harness operation {operation!r}",
             )
         if (
-            operation in {"history", "reset_session", "run_command"}
+            operation
+            in {
+                "history",
+                "reset_session",
+                "run_command",
+                "resolve_user_input",
+            }
             and not session_id
         ):
             raise SDKError(f"{operation} requires a session ID")

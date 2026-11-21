@@ -16,6 +16,10 @@ text, reasoning, tools, image/file attachments, model/effort selection and the
 `compact`, `review`, `skills`, `status`, `new` and `clear` commands. Account login
 and logout are explicit management operations. Approvals use the current host
 call's public approval callback; unknown or completed calls cannot request them.
+Codex `request_user_input` questions stream as a `request_user_input` tool card
+that the console answers through the host's
+`POST /api/harnesses/codex/user-input/{request_id}`; a question whose turn has
+ended, or that nobody answers within 24 hours, is released with no answer.
 
 Each workspace stores its mappings in
 `plugin-data/qwenpaw-harness-codex/codex_sessions.json`. On its first actual open,

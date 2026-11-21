@@ -31,6 +31,24 @@ from plugins.harness.codex.discovery import (
     bundled_cli_candidate,
     resolve_codex_binary_info,
 )
+from plugins.harness.codex.user_input import (
+    PendingUserInputNotFoundError,
+    PendingUserInputSessionMismatchError,
+)
+
+QUESTIONS = [
+    {
+        "id": "choice",
+        "header": "Choice",
+        "question": "Which option?",
+        "options": [
+            {"label": "First", "description": "Use the first"},
+            {"label": "Second", "description": "Use the second"},
+        ],
+        "isOther": True,
+        "isSecret": False,
+    },
+]
 
 
 class CodexProcess:
@@ -122,6 +140,19 @@ class CodexProcess:
                         **self.current,
                         "itemId": "tool",
                         "command": "pytest",
+                    },
+                },
+            )
+        elif prompt == "ask":
+            self.emit(
+                {
+                    "id": 901,
+                    "method": "item/tool/requestUserInput",
+                    "params": {
+                        **self.current,
+                        "itemId": "question",
+                        "questions": QUESTIONS,
+                        "isBlocking": True,
                     },
                 },
             )
@@ -503,3 +534,148 @@ async def test_actual_zip_manifest_registration_and_host_call(
         assert any(
             m == "turn/start" for p in runtime.processes for m, _ in p.requests
         )
+
+
+async def test_user_input_is_streamed_answered_and_kept_out_of_output(
+    runtime,
+):
+    backend, call = runtime.backend(), runtime.call()
+    answers = {"choice": {"answers": ["Second"]}}
+    events = []
+    async with asyncio.timeout(3):
+        async for event in backend.run_turn(call, HarnessRunRequest("ask")):
+            events.append(event)
+            if event.tool_name != "request_user_input":
+                continue
+            if event.kind != HarnessEventKind.TOOL_STARTED:
+                continue
+            request_id = event.data["arguments"]["request_id"]
+            with pytest.raises(PendingUserInputNotFoundError):
+                await backend.resolve_user_input(
+                    call,
+                    request_id="missing",
+                    answers=answers,
+                )
+            with pytest.raises(PendingUserInputSessionMismatchError):
+                await backend.resolve_user_input(
+                    runtime.call(session="other"),
+                    request_id=request_id,
+                    answers=answers,
+                )
+            await backend.resolve_user_input(
+                call,
+                request_id=request_id,
+                answers=answers,
+            )
+    started, completed, done = events
+    assert started.kind == HarnessEventKind.TOOL_STARTED
+    assert started.item_id == completed.item_id == "question"
+    arguments = started.data["arguments"]
+    assert arguments["provider_id"] == "codex"
+    assert arguments["session_id"] == "chat"
+    assert arguments["questions"] == QUESTIONS
+    assert arguments["is_blocking"] is True
+    assert completed.kind == HarnessEventKind.TOOL_COMPLETED
+    assert json.loads(completed.text) == {"status": "answered"}
+    # Answers can be secrets (isSecret questions); Codex gets them through the
+    # JSON-RPC reply, so the persisted tool output must not echo them.
+    assert "Second" not in completed.text
+    assert done.kind == HarnessEventKind.COMPLETED
+    assert runtime.processes[-1].decisions == [{"answers": answers}]
+    with pytest.raises(PendingUserInputNotFoundError):
+        await backend.resolve_user_input(
+            call,
+            request_id=arguments["request_id"],
+            answers=answers,
+        )
+
+
+async def test_user_input_is_cancelled_when_its_turn_ends(runtime):
+    backend, call = runtime.backend(), runtime.call()
+    asked = asyncio.Event()
+    request_ids = []
+
+    async def consume():
+        async for event in backend.run_turn(call, HarnessRunRequest("ask")):
+            if event.kind == HarnessEventKind.TOOL_STARTED:
+                request_ids.append(event.data["arguments"]["request_id"])
+                asked.set()
+
+    task = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(asked.wait(), 2)
+        process = runtime.processes[-1]
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with asyncio.timeout(2):
+            while not process.decisions:
+                await asyncio.sleep(0.005)
+        # Codex is released with an empty answer instead of waiting a day.
+        assert process.decisions == [{"answers": {}}]
+        assert "turn/interrupt" in dict(process.requests)
+        with pytest.raises(PendingUserInputNotFoundError):
+            await backend.resolve_user_input(
+                call,
+                request_id=request_ids[0],
+                answers={},
+            )
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_user_input_without_a_streaming_turn_answers_empty(runtime):
+    backend = runtime.backend()
+    result = await backend._handle_server_request(
+        {
+            "id": 1,
+            "method": "item/tool/requestUserInput",
+            "params": {
+                "threadId": "idle",
+                "turnId": "turn",
+                "questions": QUESTIONS,
+            },
+        },
+    )
+    assert result == {"answers": {}}
+
+
+async def test_close_cancels_waiting_user_input(runtime):
+    backend, call = runtime.backend(), runtime.call()
+    asked = asyncio.Event()
+
+    async def consume():
+        async for event in backend.run_turn(call, HarnessRunRequest("ask")):
+            if event.kind == HarnessEventKind.TOOL_STARTED:
+                asked.set()
+
+    task = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(asked.wait(), 2)
+        assert backend._user_inputs._pending
+        await backend.close()
+        assert not backend._user_inputs._pending
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_thread_is_resumed_again_after_app_server_restart(runtime):
+    backend, call = runtime.backend(), runtime.call()
+    await collect(backend, call)
+    await collect(backend, call)
+    first = runtime.processes[-1]
+    thread_id = dict(first.requests)["turn/start"]["threadId"]
+    assert len(runtime.processes) == 1
+    assert "thread/resume" not in dict(first.requests)
+    # The stdout reader dies while the process lives on: the next turn
+    # replaces the process, which has never loaded the thread.
+    reader = backend._client._reader_task
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+    await collect(backend, call)
+    second = runtime.processes[-1]
+    assert second is not first
+    assert ("thread/resume", {"threadId": thread_id}) in second.requests
+    assert dict(second.requests)["turn/start"]["threadId"] == thread_id

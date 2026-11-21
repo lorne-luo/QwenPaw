@@ -33,6 +33,11 @@ from .io_helpers import finish, run_io, stop_process
 from .app_server import CodexAppServerClient, CodexAppServerError
 from .projection import project_runtime
 from .discovery import CODEX_RUNTIME_NOT_FOUND
+from .user_input import (
+    CodexAnswers,
+    CodexUserInputBroker,
+    PendingUserInputTimedOutError,
+)
 
 _TOOL_ITEM_TYPES = {
     "collabAgentToolCall",
@@ -52,6 +57,15 @@ _TOOL_PROGRESS_METHODS = {
 }
 
 _CODEX_CLI_INSTALL_MESSAGE = CODEX_RUNTIME_NOT_FOUND
+
+
+def _loaded_thread_key(client: Any, thread_id: str) -> tuple[int, int, str]:
+    """Identify a thread loaded into one app-server process.
+
+    A client restarts its process in place, so its id alone would keep a
+    thread marked loaded after the new process has never seen it.
+    """
+    return (id(client), getattr(client, "generation", 0), thread_id)
 
 
 class CodexBackend:
@@ -80,11 +94,12 @@ class CodexBackend:
         self._threads: dict[str, str] = {}
         self._prepared = False
         self._closed = False
-        self._loaded_threads: set[tuple[int, str]] = set()
+        self._loaded_threads: set[tuple[int, int, str]] = set()
         self._thread_contexts: dict[str, HarnessCallContext] = {}
         self._mcp_tasks: set[asyncio.Task] = set()
         self._mcp_processes: set[Any] = set()
         self._approval_tasks: dict[tuple[str, int], set[asyncio.Task]] = {}
+        self._user_inputs = CodexUserInputBroker()
         self._client.set_server_request_handler(self._handle_server_request)
 
     async def prepare(self) -> None:
@@ -570,6 +585,8 @@ class CodexBackend:
             raise
         finally:
             client.unsubscribe(queue)
+            if turn_id:
+                self._user_inputs.cancel_turn(thread_id, turn_id)
             await finish(self._release_context(thread_id, context))
 
     @staticmethod
@@ -657,12 +674,24 @@ class CodexBackend:
             self._threads.pop(session_id, None)
             if thread_id:
                 self._loaded_threads = {
-                    key for key in self._loaded_threads if key[1] != thread_id
+                    key
+                    for key in self._loaded_threads
+                    if key[-1] != thread_id
                 }
                 self._thread_contexts.pop(thread_id, None)
             self._session_clients.pop(session_id, None)
             self._session_fingerprints.pop(session_id, None)
             await self._save_threads()
+
+    async def resolve_user_input(
+        self,
+        context: HarnessCallContext,
+        *,
+        request_id: str,
+        answers: CodexAnswers,
+    ) -> None:
+        """Resume a Codex server request with console-provided answers."""
+        self._user_inputs.resolve(context.session_id, request_id, answers)
 
     async def close(self) -> None:
         """Close clients, readers, RPCs and ephemeral discovery."""
@@ -671,6 +700,7 @@ class CodexBackend:
             await finish(self._close())
 
     async def _close(self):
+        self._user_inputs.cancel_all()
         approvals = {
             task for group in self._approval_tasks.values() for task in group
         }
@@ -721,7 +751,7 @@ class CodexBackend:
             session_id = self._session_key(context)
             thread_id = await self._claim_thread(context)
             if thread_id:
-                loaded_key = (id(client), thread_id)
+                loaded_key = _loaded_thread_key(client, thread_id)
                 if loaded_key not in self._loaded_threads:
                     try:
                         await client.request(
@@ -749,7 +779,7 @@ class CodexBackend:
             if not thread_id:
                 raise CodexAppServerError("Codex did not return a thread id")
             self._threads[session_id] = thread_id
-            self._loaded_threads.add((id(client), thread_id))
+            self._loaded_threads.add(_loaded_thread_key(client, thread_id))
             await self._save_threads()
             return thread_id
 
@@ -806,6 +836,8 @@ class CodexBackend:
         message: dict[str, Any],
     ) -> dict[str, Any]:
         method = str(message.get("method") or "")
+        if method == "item/tool/requestUserInput":
+            return await self._handle_user_input_request(message)
         if method not in {
             "item/commandExecution/requestApproval",
             "item/fileChange/requestApproval",
@@ -868,6 +900,88 @@ class CodexBackend:
                 "scope": "turn",
             }
         return {"decision": "accept" if decision == "approved" else "decline"}
+
+    async def _handle_user_input_request(
+        self,
+        message: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Expose a Codex question as a resumable harness tool call."""
+        params = dict(message.get("params") or {})
+        thread_id = str(params.get("threadId") or "")
+        turn_id = str(params.get("turnId") or "")
+        item_id = str(params.get("itemId") or "")
+        context = self._thread_contexts.get(thread_id)
+        if context is None:
+            # No turn is streaming this thread, so nobody can see the
+            # question; answer empty instead of holding Codex for a day.
+            return {"answers": {}}
+        session_id = context.session_id
+        questions = [
+            dict(question)
+            for question in params.get("questions") or []
+            if isinstance(question, dict)
+        ]
+        pending = self._user_inputs.register(
+            session_id=session_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            item_id=item_id,
+            questions=questions,
+        )
+        # The turn subscribed on its session client; publish there so the
+        # question reaches the stream that is waiting on this thread.
+        client = (
+            self._session_clients.get(self._session_key(context))
+            or self._client
+        )
+        common_params = {
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "itemId": item_id or pending.request_id,
+            "requestId": pending.request_id,
+            "sessionId": session_id,
+        }
+        client.publish(
+            {
+                "method": "qwenpaw/item/tool/requestUserInput",
+                "params": {
+                    **common_params,
+                    "questions": questions,
+                    "expiresAt": pending.expires_at,
+                    "isBlocking": bool(params.get("isBlocking", True)),
+                },
+            },
+        )
+        answers: CodexAnswers = {}
+        status = "expired"
+        try:
+            answers = await self._user_inputs.wait(pending)
+            status = "answered"
+        except PendingUserInputTimedOutError:
+            status = "expired"
+        except asyncio.CancelledError:
+            client.publish(
+                {
+                    "method": "qwenpaw/item/tool/requestUserInput/completed",
+                    "params": {
+                        **common_params,
+                        "status": "cancelled",
+                        "answers": {},
+                    },
+                },
+            )
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise
+            # Only the question was cancelled (its turn ended): tell Codex.
+            return {"answers": {}}
+        client.publish(
+            {
+                "method": "qwenpaw/item/tool/requestUserInput/completed",
+                "params": {**common_params, "status": status},
+            },
+        )
+        return {"answers": answers}
 
     async def _release_context(self, thread_id, context):
         if self._thread_contexts.get(thread_id) is context:
@@ -979,6 +1093,39 @@ class CodexBackend:
     ) -> HarnessEvent | None:
         method = message.get("method")
         params = message.get("params") or {}
+        if method == "qwenpaw/item/tool/requestUserInput":
+            return HarnessEvent(
+                kind=HarnessEventKind.TOOL_STARTED,
+                item_id=str(params.get("itemId") or ""),
+                tool_name="request_user_input",
+                data={
+                    "arguments": {
+                        "provider_id": "codex",
+                        "request_id": params.get("requestId"),
+                        "session_id": params.get("sessionId"),
+                        "questions": params.get("questions") or [],
+                        "expires_at": params.get("expiresAt"),
+                        "is_blocking": bool(
+                            params.get("isBlocking", True),
+                        ),
+                    },
+                    "provider_type": "requestUserInput",
+                    "status": "inProgress",
+                },
+            )
+        if method == "qwenpaw/item/tool/requestUserInput/completed":
+            # Answers stay out of the persisted output: they can be secrets.
+            output = {"status": str(params.get("status") or "completed")}
+            return HarnessEvent(
+                kind=HarnessEventKind.TOOL_COMPLETED,
+                item_id=str(params.get("itemId") or ""),
+                tool_name="request_user_input",
+                text=json.dumps(output, ensure_ascii=False),
+                data={
+                    "provider_type": "requestUserInput",
+                    "status": output["status"],
+                },
+            )
         if method == "item/agentMessage/delta":
             return HarnessEvent(
                 kind=HarnessEventKind.TEXT_DELTA,

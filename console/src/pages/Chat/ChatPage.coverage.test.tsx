@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle, useEffect } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { useNavigate } from "react-router-dom";
+import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
@@ -125,7 +126,9 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof props.options?.sender?.actionAffix === "function"
+          ? props.options.sender.actionAffix({})
+          : props.options?.sender?.actionAffix}
       </div>
     );
   }),
@@ -1468,6 +1471,65 @@ describe("ChatPage coverage", () => {
     expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
   });
 
+  it("sends directly right after a reply finishes with an empty queue", async () => {
+    const chatId = "44422222-2222-4222-8222-222222222222";
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    const utils = await import("./utils");
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValue(textarea);
+    const setLoading = (loading: boolean) => {
+      const input = {
+        loading,
+        setLoading: vi.fn(),
+        getLoading: vi.fn(() => loading),
+        setSessionLoading: vi.fn(),
+        setDisabled: vi.fn(),
+      };
+      vi.mocked(useChatAnywhereInput).mockImplementation((select) =>
+        select(input as unknown as Parameters<typeof select>[0]),
+      );
+      view.rerender(<ChatPage />);
+    };
+    try {
+      setLoading(true);
+      await act(async () => {});
+      // The reply finishes: the queue drain check runs even though nothing
+      // is queued.
+      setLoading(false);
+      await act(async () => {});
+
+      textarea.value = "follow-up";
+      const enter = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        textarea.dispatchEvent(enter);
+      });
+      expect(enter.defaultPrevented).toBe(false);
+
+      const result = await capturedOptions.sender.beforeSubmit({
+        query: "follow-up",
+      });
+      expect(result).toMatchObject({ proceed: true, query: "follow-up" });
+      expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+        agentId: "default",
+      });
+      expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+    } finally {
+      vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValue(null);
+      textarea.remove();
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    }
+  });
+
   it("rechecks the host queue after a pending idle status result", async () => {
     const chatId = "33322222-2222-4222-8222-222222222222";
     let resolveStatus!: (value: { status: "idle" }) => void;
@@ -1503,6 +1565,73 @@ describe("ChatPage coverage", () => {
         .map((item) => item.text),
     ).toEqual(["already queued", "after existing queue"]);
     act(() => useMessageQueueStore.getState().clear(chatId));
+  });
+
+  it("drops a repeat submit while the first is still being admitted", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222222";
+    let resolveStatus: (value: { status: "idle" }) => void = () => {};
+    mockGetChatStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const { container } = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+    const root = () =>
+      container.querySelector('[class*="chatPageRoot"]') as HTMLElement;
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const first = beforeSubmit({ query: "same text" });
+    await waitFor(() => expect(mockGetChatStatus).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(root().className).toContain("submitPending"));
+
+    // A slow network leaves the text in the composer, so the repeat click
+    // carries the same query. It must be dropped, not queued behind the first.
+    await expect(beforeSubmit({ query: "same text" })).resolves.toBe(false);
+
+    resolveStatus({ status: "idle" });
+    let result: unknown;
+    await act(async () => {
+      result = await first;
+    });
+
+    expect(result).toMatchObject({ proceed: true, query: "same text" });
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(1);
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+    expect(root().className).not.toContain("submitPending");
+  });
+
+  it("accepts the next submit once a timed-out status check fails", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222226";
+    mockGetChatStatus.mockRejectedValueOnce(
+      new Error("Request timeout after 30000ms"),
+    );
+    const { container } = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    let first: unknown;
+    await act(async () => {
+      first = await capturedOptions.sender.beforeSubmit({ query: "first" });
+    });
+    expect(first).toMatchObject({ proceed: true, query: "first" });
+    expect(
+      (container.querySelector('[class*="chatPageRoot"]') as HTMLElement)
+        .className,
+    ).not.toContain("submitPending");
+
+    // The failed status check released the guard, so the next message is
+    // admitted on its own rather than dropped as a repeat.
+    let second: unknown;
+    await act(async () => {
+      second = await capturedOptions.sender.beforeSubmit({ query: "second" });
+    });
+    expect(second).toMatchObject({ proceed: true, query: "second" });
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
   });
 
   it("allows a fresh SDK admission after switching sessions", async () => {
@@ -1733,6 +1862,129 @@ describe("ChatPage coverage", () => {
     });
     expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  describe("queued send whose backend acceptance is unknown", () => {
+    // The POST left the browser but the stream dropped before its response
+    // arrived, so the SDK settles the Run with accepted=false and
+    // backendAcceptance="unknown". The backend may still own the message.
+    async function runUnknownAcceptance(receiptLands: boolean) {
+      const chatId = "76100000-0000-4000-8000-000000000001";
+      const store = useMessageQueueStore.getState();
+      store.enqueue(chatId, { text: "queued once", agentId: "default" });
+      store.enqueue(chatId, { text: "queued later", agentId: "default" });
+      const [head, next] = store.getQueue(chatId);
+      let history: Array<Record<string, unknown>> = [];
+      global.fetch = vi.fn(
+        async (input: RequestInfo | URL) =>
+          ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ "Content-Type": "application/json" }),
+            json: async () =>
+              String(input).includes(`/chats/${chatId}`)
+                ? { status: "idle", messages: history }
+                : {},
+          }) as Response,
+      );
+      mockRuntimeSubmit.mockImplementation(
+        async (
+          _data: unknown,
+          options: { clientRequestId?: string; sessionId?: string },
+        ) => {
+          const lifecycle = new ChatRunLifecycle({
+            runId: "unknown-run",
+            clientRequestId: options.clientRequestId,
+            source: "host-queue",
+            sessionId: options.sessionId,
+            cancel: vi.fn(),
+          });
+          lifecycle.markDispatched();
+          // Later items stay in flight so the assertions never race them.
+          if (options.clientRequestId !== head.clientMessageId) {
+            return lifecycle.handle;
+          }
+          if (receiptLands) {
+            history = [
+              { role: "user", metadata: {} },
+              {
+                role: "user",
+                metadata: {
+                  metadata: {
+                    qwenpaw_client_message_id: options.clientRequestId,
+                  },
+                },
+              },
+            ];
+          }
+          lifecycle.fail(new Error("stream dropped before the response"));
+          return lifecycle.handle;
+        },
+      );
+
+      renderWithProviders(<ChatPage />, {
+        initialEntries: [`/chat/${chatId}`],
+      });
+      await screen.findByTestId("chat-ui");
+      await waitFor(() => expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1), {
+        timeout: 4_000,
+      });
+      expect(mockRuntimeSubmit.mock.calls[0][1]).toMatchObject({
+        clientRequestId: head.clientMessageId,
+      });
+      return { chatId, head, next };
+    }
+
+    it("removes only the item whose receipt reaches history", async () => {
+      const { chatId, head, next } = await runUnknownAcceptance(true);
+
+      await waitFor(
+        () =>
+          expect(
+            useMessageQueueStore
+              .getState()
+              .getQueue(chatId)
+              .map((item) => item.id),
+          ).not.toContain(head.id),
+        { timeout: 4_000 },
+      );
+      // The next item then gets its own turn, untouched by the head's receipt,
+      // and the confirmed head is never resent.
+      await waitFor(() => expect(mockRuntimeSubmit).toHaveBeenCalledTimes(2), {
+        timeout: 4_000,
+      });
+      expect(mockRuntimeSubmit.mock.calls[1][1]).toMatchObject({
+        clientRequestId: next.clientMessageId,
+      });
+      expect(
+        useMessageQueueStore
+          .getState()
+          .getQueue(chatId)
+          .map((item) => item.id),
+      ).toEqual([next.id]);
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    });
+
+    it("keeps an unconfirmed item as a retryable failure", async () => {
+      const { chatId, head, next } = await runUnknownAcceptance(false);
+
+      await waitFor(
+        () =>
+          expect(
+            useMessageQueueStore.getState().getQueue(chatId)[0],
+          ).toMatchObject({ id: head.id, status: "failed" }),
+        { timeout: 4_000 },
+      );
+      expect(useMessageQueueStore.getState().getRunState(chatId)).toBe("error");
+      expect(
+        useMessageQueueStore
+          .getState()
+          .getQueue(chatId)
+          .map((item) => item.id),
+      ).toEqual([head.id, next.id]);
+      expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1);
+      act(() => useMessageQueueStore.getState().clear(chatId));
+    });
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────

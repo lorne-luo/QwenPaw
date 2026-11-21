@@ -4256,6 +4256,7 @@
       "edit": "编辑",
       "retry": "重试",
       "skip": "跳过",
+      "addToQueue": "加入队列，当前回复结束后发送",
       "interruptAndSend": "打断并发送",
       "delete": "删除",
       "file": "文件",

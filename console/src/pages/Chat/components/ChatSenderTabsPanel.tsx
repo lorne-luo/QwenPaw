@@ -357,7 +357,7 @@ export default function ChatSenderTabsPanel({
             </span>
           </button>
         </Tooltip>
-        {queueItems.length > 1 && (
+        {queueItems.length > 0 && (
           <Tooltip title={t("chat.queue.clear")} mouseEnterDelay={0.5}>
             <button
               type="button"

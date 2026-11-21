@@ -232,3 +232,67 @@ describe("Chat mobile layout styles", () => {
     expect(toolbarRule).toContain("var(--app-success)");
   });
 });
+
+describe("Chat revive freeze frame styles", () => {
+  it("covers the messages area opaquely and absorbs pointer events", () => {
+    const areaStart = stylesSource.indexOf(".chatMessagesArea {");
+    const areaRule = stylesSource.slice(
+      areaStart,
+      stylesSource.indexOf("}", areaStart),
+    );
+    const hostStart = stylesSource.indexOf(".reviveFreeze {");
+    const hostRule = stylesSource.slice(
+      hostStart,
+      stylesSource.indexOf("\n}", hostStart),
+    );
+
+    expect(areaRule).toMatch(/position:\s*relative/);
+    expect(hostStart).toBeGreaterThanOrEqual(0);
+    expect(hostRule).toMatch(/position:\s*absolute/);
+    expect(hostRule).toMatch(/inset:\s*0/);
+    expect(hostRule).toMatch(/background:\s*var\(--app-bg\)/);
+    expect(hostRule).toMatch(/pointer-events:\s*auto/);
+    expect(hostRule).toMatch(/&:empty\s*{\s*display:\s*none/);
+  });
+
+  it("freezes animations and transitions inside the held copy", () => {
+    const hostStart = stylesSource.indexOf(".reviveFreeze {");
+    const hostRule = stylesSource.slice(
+      hostStart,
+      stylesSource.indexOf("\n}", hostStart),
+    );
+
+    expect(hostRule).toMatch(
+      /& \*\s*{\s*animation:\s*none !important;\s*transition:\s*none !important;/,
+    );
+  });
+
+  it("keeps a revive-remounted runtime from fading its history in", () => {
+    const areaStart = chatSource.indexOf("ref={chatMessagesAreaRef}");
+    const area = chatSource.slice(
+      areaStart,
+      chatSource.indexOf("</div>", areaStart),
+    );
+
+    expect(stylesSource).toMatch(
+      /\.chatMessagesArea\.revived :global\(\[class\*="-bubble-list-wrapper"\]\)\s*{\s*animation:\s*none;/,
+    );
+    expect(area).toContain("runtimeRevived && styles.revived");
+    // A revive marks the new runtime; an agent switch mounts a plain one.
+    expect(chatSource).toMatch(/setRuntimeRevived\(true\);\s*setRefreshKey/);
+    expect(chatSource).toMatch(/setRuntimeRevived\(false\);\s*setRefreshKey/);
+  });
+
+  it("renders the freeze host as the last child of the messages area", () => {
+    const areaStart = chatSource.indexOf("ref={chatMessagesAreaRef}");
+    const area = chatSource.slice(
+      areaStart,
+      chatSource.indexOf("</div>", areaStart),
+    );
+
+    expect(areaStart).toBeGreaterThanOrEqual(0);
+    expect(area).toMatch(
+      /<\/RichFileReferenceInputProvider>[\s\S]*ref={reviveFreezeHostRef}[\s\S]*className={styles\.reviveFreeze}\s*\/>\s*$/,
+    );
+  });
+});

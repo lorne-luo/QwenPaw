@@ -518,10 +518,10 @@ describe("ChatSenderTabsPanel queue toolbar", () => {
     expect(props.onPauseResume).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the clear action while a single message is queued", () => {
+  it("offers the clear action while a single message is queued", () => {
     h.queueItems = [queueItem()];
     renderPanel();
-    expect(screen.queryByRole("button", { name: /Clear queue/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Clear queue/ })).toBeTruthy();
   });
 
   it("offers the clear action once more than one message is queued", () => {

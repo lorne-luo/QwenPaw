@@ -83,6 +83,7 @@ jobs:
           python scripts/pack/generate_plugin_metadata.py
           --plugins-root plugins --dist dist/plugins
           --metadata-out dist/plugins/index.json --cdn-prefix /files/plugins
+          --only qwenpaw-harness-antigravity
           --only qwenpaw-harness-codex --only qwenpaw-harness-qoder
           --only qwenpaw-harness-claude
       - uses: actions/upload-artifact@v4
@@ -116,7 +117,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        vendor: [codex, qoder, claude]
+        vendor: [antigravity, codex, qoder, claude]
+        exclude:
+          # The Antigravity CLI (agy) is Linux-only.
+          - vendor: antigravity
+            os: macos-latest
+          - vendor: antigravity
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -145,6 +152,8 @@ jobs:
           python -m pip install -e ".[test]"
           python -m pip install -r "plugins/harness/${HARNESS_VENDOR}/requirements-test.txt"
       - name: Verify isolated platform SDK and safe CLI version
+        # Antigravity has no vendor SDK or bundled CLI to verify.
+        if: matrix.vendor != 'antigravity'
         run: |
           python - <<'PY'
           import importlib

@@ -15,6 +15,7 @@ from .dependency_gate import SharedDependencyError
 from .loader import PluginLoader
 
 _LEGACY_PLUGINS = {
+    "antigravity": "qwenpaw-harness-antigravity",
     "codex": "qwenpaw-harness-codex",
     "qoder": "qwenpaw-harness-qoder",
     "claude": "qwenpaw-harness-claude",

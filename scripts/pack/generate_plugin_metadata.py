@@ -368,6 +368,7 @@ def _validate_declared_entries(
     """Fail closed when a manifest entry point is absent from the tree."""
     harness_root = Path(__file__).resolve().parents[2] / "plugins" / "harness"
     if plugin_dir.resolve() in {
+        harness_root / "antigravity",
         harness_root / "codex",
         harness_root / "qoder",
         harness_root / "claude",

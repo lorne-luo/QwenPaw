@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-VENDORS = ("codex", "qoder", "claude")
+VENDORS = ("antigravity", "codex", "qoder", "claude")
 HEADER = (
     "# Generated from plugins/harness/_shared/io_helpers.py; do not edit.\n"
     "# Update the shared source, then run:\n"

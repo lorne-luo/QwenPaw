@@ -353,3 +353,17 @@ describe("chatApi CRUD", () => {
     );
   });
 });
+
+it("posts a rewind for one chat, pinned to the agent", async () => {
+  await chatApi.rewindChat(
+    "chat/id",
+    { client_message_id: "c1", include_files: true },
+    { agentId: "dev" },
+  );
+
+  expect(request).toHaveBeenCalledWith("/chats/chat%2Fid/rewind", {
+    method: "POST",
+    body: JSON.stringify({ client_message_id: "c1", include_files: true }),
+    headers: { "X-Agent-Id": "dev" },
+  });
+});

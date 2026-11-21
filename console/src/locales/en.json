@@ -4487,7 +4487,20 @@
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
     "turnCanceled": "Canceled",
-    "outputTruncated": "The model reached its output limit. This answer is incomplete. Ask it to continue or increase the output limit."
+    "outputTruncated": "The model reached its output limit. This answer is incomplete. Ask it to continue or increase the output limit.",
+    "rewind": {
+      "action": "Rewind to here",
+      "title": "Rewind the conversation to this prompt?",
+      "content": "This prompt and everything after it ({{count}} messages) will be removed. The prompt goes back into the input box.",
+      "restoreFiles": "Also restore {{count}} workspace files to how they were before this prompt",
+      "noFileChanges": "No workspace files changed since this prompt.",
+      "noCheckpoint": "No checkpoint from before this prompt, so files stay as they are. Turn on auto checkpoints to rewind files too.",
+      "ok": "Rewind",
+      "busy": "Stop the running reply before rewinding.",
+      "notFound": "Couldn't find this prompt in the saved history. Reload the chat and try again.",
+      "done": "Rewound. The prompt is back in the input box.",
+      "doneWithFiles": "Rewound and restored {{count}} files."
+    }
   },
   "security": {
     "parent": "Settings",

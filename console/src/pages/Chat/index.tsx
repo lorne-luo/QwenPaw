@@ -39,6 +39,7 @@ import {
   CircleAlert as ExclamationCircleOutlined,
   Copy,
   Paperclip as SparkAttachmentLine,
+  RotateCcw,
   Settings as SettingOutlined,
   Send as SparkSendLine,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { useChatRewind } from "./useChatRewind";
 import {
   getDraftStorageKey,
   handoverDraftToSession,
@@ -2049,6 +2051,14 @@ export default function ChatPage() {
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
+  const isChatBusy = useCallback(() => Boolean(chatLoadingRef.current), []);
+  const handleRewind = useChatRewind({
+    chatRef,
+    sessionId: queueSessionId,
+    backendChatId,
+    agentId: selectedAgent,
+    isBusy: isChatBusy,
+  });
   /** Timestamp of the last SSE chunk, used to spot a stream the browser
    *  killed while the tab was frozen (mobile screen-off). */
   const lastStreamEventAtRef = useRef(0);
@@ -4828,6 +4838,18 @@ export default function ChatPage() {
               }
             },
           },
+          ...(usesQwenPawBackend
+            ? [
+                {
+                  icon: (
+                    <span title={t("chat.rewind.action")}>
+                      <RotateCcw />
+                    </span>
+                  ),
+                  onClick: handleRewind,
+                },
+              ]
+            : []),
           ...pluginRequestActions,
         ],
       },
@@ -4878,6 +4900,7 @@ export default function ChatPage() {
     handleQueuePauseResume,
     handleQueueRetry,
     handleQueueSkip,
+    handleRewind,
     handleCompactCommand,
     handleNewCommand,
     isMobile,

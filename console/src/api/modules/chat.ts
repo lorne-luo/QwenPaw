@@ -23,6 +23,24 @@ export interface ChatStatusResponse {
   status: "idle" | "running";
 }
 
+/** Body of POST /chats/{id}/rewind: the user prompt to rewind to. */
+export interface ChatRewindRequest {
+  message_id?: string;
+  client_message_id?: string;
+  include_files?: boolean;
+  dry_run?: boolean;
+}
+
+export interface ChatRewindResponse {
+  dry_run: boolean;
+  prompt_text: string;
+  removed_count: number;
+  files_available: boolean;
+  file_paths: string[];
+  files_restored: boolean;
+  pre_restore_ref?: string | null;
+}
+
 const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
@@ -138,6 +156,17 @@ export const chatApi = {
       },
     );
   },
+
+  rewindChat: (
+    chatId: string,
+    body: ChatRewindRequest,
+    options?: { agentId?: string },
+  ) =>
+    request<ChatRewindResponse>(`/chats/${encodeURIComponent(chatId)}/rewind`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: options?.agentId ? { "X-Agent-Id": options.agentId } : undefined,
+    }),
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {

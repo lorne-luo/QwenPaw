@@ -4339,7 +4339,20 @@
     "regenerate": "重新生成",
     "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
     "turnCanceled": "已停止",
-    "outputTruncated": "模型已达到输出上限，当前回答不完整。请让模型继续回答，或提高输出上限。"
+    "outputTruncated": "模型已达到输出上限，当前回答不完整。请让模型继续回答，或提高输出上限。",
+    "rewind": {
+      "action": "回退到这里",
+      "title": "将对话回退到这条消息？",
+      "content": "这条消息及之后的内容（共 {{count}} 条）将被删除，消息内容会填回输入框。",
+      "restoreFiles": "同时把 {{count}} 个 workspace 文件恢复到发送这条消息之前",
+      "noFileChanges": "这条消息之后 workspace 文件没有变化。",
+      "noCheckpoint": "没有这条消息之前的 checkpoint，文件保持不变。开启自动 checkpoint 后才能同时回退文件。",
+      "ok": "回退",
+      "busy": "请先停止正在进行的回复再回退。",
+      "notFound": "在已保存的历史里找不到这条消息，请刷新会话后重试。",
+      "done": "已回退，消息已填回输入框。",
+      "doneWithFiles": "已回退，并恢复了 {{count}} 个文件。"
+    }
   },
   "security": {
     "parent": "设置",

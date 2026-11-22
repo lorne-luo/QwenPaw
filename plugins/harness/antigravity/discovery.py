@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""CLI compatibility and bounded authentication discovery."""
+"""CLI resolution plus a bounded ACP compatibility and auth check."""
 
 import asyncio
 import copy
 import os
 import shutil
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -12,17 +13,6 @@ from typing import Any
 
 from .auth import probe_auth
 from .io_helpers import run_io
-from .process import StreamProcess
-
-REQUIRED_FLAGS = (
-    "--input-format",
-    "--output-format",
-    "--conversation",
-    "--print-timeout",
-    "--model",
-    "--effort",
-    "--dangerously-skip-permissions",
-)
 
 
 @dataclass
@@ -81,27 +71,35 @@ def discover(binary=None, env=None):
     )
 
 
-async def _probe(status, flag, env):
-    process = await StreamProcess.start([status.runtime_path, flag], ".", env)
+async def cli_version(binary, env):
+    """``agy --version`` with a bounded wait; the group never outlives it."""
+    process = await asyncio.create_subprocess_exec(
+        binary,
+        "--version",
+        cwd=".",
+        env=env,
+        start_new_session=True,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
     try:
-        process.process.stdin.close()
-        data = bytearray()
         async with asyncio.timeout(5):
-            while chunk := await process.process.stdout.read(8192):
-                data.extend(chunk)
-                if len(data) > 1024 * 1024:
-                    raise RuntimeError("agy probe output too large")
-            await process.process.wait()
-            await process.drain_task
-        if process.process.returncode:
-            raise RuntimeError("agy compatibility probe failed")
-        output = data.decode(errors="replace")
-        if flag == "--help":
-            # agy 1.1.x writes its help text to stderr.
-            output += process.stderr.decode(errors="replace")
-        return output
+            output = await process.stdout.read(64 * 1024)
+            await process.wait()
     finally:
-        await asyncio.shield(process.close())
+        if process.returncode is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            await process.wait()
+    if process.returncode:
+        raise RuntimeError("agy --version failed")
+    version = output.decode(errors="replace").strip()
+    if not version:
+        raise RuntimeError("agy did not report its version")
+    return version
 
 
 class Discovery:
@@ -134,36 +132,21 @@ class Discovery:
                 return copy.deepcopy(self._cached)
             if status.available:
                 try:
-                    output = {
-                        flag: await _probe(status, flag, env)
-                        for flag in ("--version", "--help")
-                    }
-                    if not all(
-                        flag in output["--help"] for flag in REQUIRED_FLAGS
-                    ):
-                        raise RuntimeError(
-                            "agy is missing required streaming flags; "
-                            "upgrade Antigravity CLI",
-                        )
-                    if not output["--version"].strip():
-                        raise RuntimeError("agy did not report its version")
                     status.account = {
-                        "cli_version": output["--version"].strip(),
+                        "cli_version": await cli_version(
+                            status.runtime_path,
+                            env,
+                        ),
                     }
                 except Exception as exc:
                     status.available = False
-                    status.error = (
-                        str(exc) or "agy compatibility probe timed out"
-                    )
-                if status.available:
-                    auth = await probe_auth(
-                        status.runtime_path,
-                        env,
-                        status.account["cli_version"],
-                    )
-                    status.authentication_status = auth.state
-                    status.authenticated = auth.state == "authenticated"
-                    status.error = auth.reason
+                    status.error = str(exc) or "agy --version timed out"
+            if status.available:
+                auth = await probe_auth(status.runtime_path, env)
+                status.available = auth.compatible
+                status.authentication_status = auth.state
+                status.authenticated = auth.state == "authenticated"
+                status.error = auth.reason
             self._cached = status
             self._key = key
             ttl = 60 if status.authenticated else 5

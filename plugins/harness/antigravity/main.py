@@ -27,21 +27,34 @@ class Plugin:
                 capabilities=HarnessCapabilities(
                     model_selection=True,
                     reasoning_effort=True,
+                    reasoning_stream=True,
                     tool_stream=True,
                     session_resume=True,
                     approval_presets=(
                         HarnessApprovalPreset(
                             "configured",
-                            "CLI configuration",
-                            "Use existing CLI permissions; "
-                            "no approval dialog.",
+                            "Ask before actions",
+                            "Follow the CLI permission settings and ask "
+                            "here when Antigravity requests approval.",
                             {"permission_mode": "configured"},
+                        ),
+                        HarnessApprovalPreset(
+                            "accept-edits",
+                            "Accept edits",
+                            "Approve workspace file edits without asking.",
+                            {"permission_mode": "accept-edits"},
+                        ),
+                        HarnessApprovalPreset(
+                            "plan",
+                            "Plan",
+                            "Plan carefully before executing a task.",
+                            {"permission_mode": "plan"},
                         ),
                         HarnessApprovalPreset(
                             "full-access",
                             "Full access",
-                            "Skip tool permission checks in a trusted "
-                            "workspace.",
+                            "Approve every tool permission request in a "
+                            "trusted workspace.",
                             {"permission_mode": "full-access"},
                         ),
                     ),
@@ -55,7 +68,8 @@ class Plugin:
                     },
                 ),
                 description=(
-                    "Native Antigravity CLI (agy) over streaming NDJSON."
+                    "Native Antigravity CLI (agy) over the Agent Client "
+                    "Protocol."
                 ),
             ),
         )
